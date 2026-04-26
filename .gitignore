@@ -1,0 +1,6 @@
+/cortex-sync
+/dist/
+*.test
+*.out
+.env
+.env.*
