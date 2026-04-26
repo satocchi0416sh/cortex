@@ -123,3 +123,27 @@ func TestUnknownLanguageFallback(t *testing.T) {
 		t.Errorf("expected plain text, got %v", body["language"])
 	}
 }
+
+func TestUnknownNamedLanguageFallsBackToPlainText(t *testing.T) {
+	blocks := Convert([]byte("```env\nFOO=bar\n```\n"))
+	body := blocks[0]["code"].(map[string]any)
+	if body["language"] != "plain text" {
+		t.Errorf("expected plain text for unknown lang, got %v", body["language"])
+	}
+}
+
+func TestNotionLangPassesThrough(t *testing.T) {
+	cases := map[string]string{
+		"go":         "go",
+		"```python":  "python",
+		"```TSX":     "typescript",
+		"dockerfile": "docker",
+		"yaml":       "yaml",
+	}
+	for raw, want := range cases {
+		got := normalizeLang(strings.TrimPrefix(raw, "```"))
+		if got != want {
+			t.Errorf("normalizeLang(%q)=%q want %q", raw, got, want)
+		}
+	}
+}

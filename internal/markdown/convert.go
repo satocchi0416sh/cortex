@@ -402,26 +402,70 @@ func normalizeLang(in string) string {
 		return "plain text"
 	}
 	switch in {
-	case "sh", "shell", "bash", "zsh":
-		return "shell"
-	case "js", "javascript":
-		return "javascript"
+	case "sh", "shell", "bash", "zsh", "ksh":
+		in = "shell"
+	case "js", "javascript", "node", "nodejs":
+		in = "javascript"
 	case "ts", "typescript":
-		return "typescript"
-	case "py":
-		return "python"
+		in = "typescript"
+	case "py", "python", "python3":
+		in = "python"
 	case "rb":
-		return "ruby"
+		in = "ruby"
 	case "rs":
-		return "rust"
+		in = "rust"
 	case "yml":
-		return "yaml"
-	case "md":
-		return "markdown"
-	case "text", "plain", "txt":
-		return "plain text"
+		in = "yaml"
+	case "md", "mdx":
+		in = "markdown"
+	case "text", "plain", "txt", "log", "env", "dotenv", "ini", "conf", "config", "properties":
+		in = "plain text"
+	case "tsx":
+		in = "typescript"
+	case "jsx":
+		in = "javascript"
+	case "dockerfile":
+		in = "docker"
+	case "makefile", "mk":
+		in = "makefile"
+	case "cs":
+		in = "c#"
+	case "cpp", "cxx":
+		in = "c++"
+	case "objc", "objectivec":
+		in = "objective-c"
+	case "vb", "vbnet":
+		in = "vb.net"
+	case "ps", "ps1", "powershell":
+		in = "powershell"
 	}
-	return in
+	if _, ok := notionLangs[in]; ok {
+		return in
+	}
+	return "plain text"
+}
+
+
+var notionLangs = map[string]struct{}{
+	"abap": {}, "abc": {}, "agda": {}, "arduino": {}, "ascii art": {},
+	"assembly": {}, "bash": {}, "basic": {}, "bnf": {}, "c": {}, "c#": {},
+	"c++": {}, "clojure": {}, "coffeescript": {}, "coq": {}, "css": {},
+	"dart": {}, "dhall": {}, "diff": {}, "docker": {}, "ebnf": {}, "elixir": {},
+	"elm": {}, "erlang": {}, "f#": {}, "flow": {}, "fortran": {}, "gherkin": {},
+	"glsl": {}, "go": {}, "graphql": {}, "groovy": {}, "haskell": {}, "hcl": {},
+	"html": {}, "idris": {}, "java": {}, "javascript": {}, "json": {},
+	"julia": {}, "kotlin": {}, "latex": {}, "less": {}, "lisp": {},
+	"livescript": {}, "llvm ir": {}, "lua": {}, "makefile": {}, "markdown": {},
+	"markup": {}, "matlab": {}, "mathematica": {}, "mermaid": {}, "nix": {},
+	"notion formula": {}, "objective-c": {}, "ocaml": {}, "pascal": {},
+	"perl": {}, "php": {}, "plain text": {}, "powershell": {}, "prolog": {},
+	"protobuf": {}, "purescript": {}, "python": {}, "r": {}, "racket": {},
+	"reason": {}, "ruby": {}, "rust": {}, "sass": {}, "scala": {}, "scheme": {},
+	"scss": {}, "shell": {}, "smalltalk": {}, "solidity": {}, "sparql": {},
+	"sql": {}, "swift": {}, "toml": {}, "turtle": {}, "twig": {},
+	"typescript": {}, "vb.net": {}, "verilog": {}, "vhdl": {}, "visual basic": {},
+	"webassembly": {}, "wolfram": {}, "xml": {}, "yaml": {},
+	"java/c/c++/c#": {},
 }
 
 func itoa(i int) string {
