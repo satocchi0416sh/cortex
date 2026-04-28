@@ -147,3 +147,59 @@ func TestNotionLangPassesThrough(t *testing.T) {
 		}
 	}
 }
+
+
+func TestGFMTable(t *testing.T) {
+	src := `| Name | Type | Note |
+|---|---|---|
+| foo | int | first |
+| bar | str | second |
+`
+	blocks := Convert([]byte(src))
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0]["type"] != "table" {
+		t.Fatalf("expected table block, got %v", blocks[0]["type"])
+	}
+	body := blocks[0]["table"].(map[string]any)
+	if body["table_width"] != 3 {
+		t.Errorf("expected width=3, got %v", body["table_width"])
+	}
+	if body["has_column_header"] != true {
+		t.Errorf("expected has_column_header=true")
+	}
+	rows := body["children"].([]Block)
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows (header + 2 body), got %d", len(rows))
+	}
+	for i, r := range rows {
+		if r["type"] != "table_row" {
+			t.Errorf("row %d type=%v", i, r["type"])
+		}
+		cells := r["table_row"].(map[string]any)["cells"].([]any)
+		if len(cells) != 3 {
+			t.Errorf("row %d has %d cells, want 3", i, len(cells))
+		}
+	}
+}
+
+func TestTableWithRaggedRowsPaddedToWidth(t *testing.T) {
+	src := `| A | B | C |
+|---|---|---|
+| 1 | 2 | 3 |
+| only-one |
+`
+	blocks := Convert([]byte(src))
+	body := blocks[0]["table"].(map[string]any)
+	if body["table_width"] != 3 {
+		t.Errorf("width=%v want 3", body["table_width"])
+	}
+	rows := body["children"].([]Block)
+	for i, r := range rows {
+		cells := r["table_row"].(map[string]any)["cells"].([]any)
+		if len(cells) != 3 {
+			t.Errorf("row %d cells=%d want 3 (padded)", i, len(cells))
+		}
+	}
+}

@@ -51,6 +51,8 @@ func convertBlock(n ast.Node, src []byte, depth int) []Block {
 		return []Block{{"object": "block", "type": "divider", "divider": map[string]any{}}}
 	case *ast.List:
 		return list(v, src, depth)
+	case *extast.Table:
+		return []Block{table(v, src)}
 	case *ast.HTMLBlock:
 		return []Block{paragraphFromText(string(v.Lines().Value(src)))}
 	}
@@ -121,6 +123,68 @@ func quote(b *ast.Blockquote, src []byte, depth int) Block {
 		"object": "block",
 		"type":   "quote",
 		"quote":  body,
+	}
+}
+
+
+func table(n *extast.Table, src []byte) Block {
+	var rows []Block
+	width := 0
+	hasHeader := false
+
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		var cells []ast.Node
+		switch row := c.(type) {
+		case *extast.TableHeader:
+			hasHeader = true
+			for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
+				cells = append(cells, cell)
+			}
+		case *extast.TableRow:
+			for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
+				cells = append(cells, cell)
+			}
+		default:
+			continue
+		}
+		if len(cells) > width {
+			width = len(cells)
+		}
+		rowCells := make([]any, 0, len(cells))
+		for _, cell := range cells {
+			rt := inlineRichText(cell, src)
+			if rt == nil {
+				rt = []RichText{}
+			}
+			rowCells = append(rowCells, rt)
+		}
+		rows = append(rows, Block{
+			"object": "block",
+			"type":   "table_row",
+			"table_row": map[string]any{
+				"cells": rowCells,
+			},
+		})
+	}
+
+	for _, r := range rows {
+		body := r["table_row"].(map[string]any)
+		cells := body["cells"].([]any)
+		for len(cells) < width {
+			cells = append(cells, []RichText{})
+		}
+		body["cells"] = cells
+	}
+
+	return Block{
+		"object": "block",
+		"type":   "table",
+		"table": map[string]any{
+			"table_width":       width,
+			"has_column_header": hasHeader,
+			"has_row_header":    false,
+			"children":          rows,
+		},
 	}
 }
 
