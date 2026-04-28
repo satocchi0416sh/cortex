@@ -1,0 +1,6 @@
+#!/bin/zsh
+set -eu
+export CORTEX_NOTION_TOKEN="$(security find-generic-password -s {{.KeychainService}} -w)"
+export CORTEX_NOTION_DATABASE_ID="{{.DatabaseID}}"
+export CORTEX_SCAN_ROOT="{{.ScanRoot}}"
+exec {{.BinaryPath}} --once

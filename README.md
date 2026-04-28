@@ -2,6 +2,26 @@
 
 `~/Projects/*/.serena/memories/*.md` を Notion データベースに **冪等に upsert 同期** する macOS 向け CLI。launchd で 15 分おきに起動する想定。
 
+## Quick Start (2 ステップ)
+
+```sh
+# 1. install
+go install github.com/satocchi0416sh/cortex/cmd/cortex-sync@latest
+
+# 2. 対話セットアップ (token / DB / schema 検証 / plist 配置 / launchd 登録 / 初回確認)
+cortex-sync init
+```
+
+事前に [Notion integration](https://www.notion.so/profile/integrations) を作成し、対象 DB の "•••" → Connections で integration を Add しておいてください。
+
+セットアップ後の運用:
+
+```sh
+cortex-sync doctor       # 状態診断 (token / DB schema / plist / launchd)
+cortex-sync install      # plist 再配置 + launchd 再登録 (idempotent)
+cortex-sync uninstall    # 完全アンインストール
+```
+
 ## 前提
 
 - macOS
@@ -50,6 +70,15 @@ go build -o cortex-sync ./cmd/cortex-sync
 
 ## CLI フラグ
 
+```
+cortex-sync [flags]              一回限り sync (既定動作)
+cortex-sync init                 対話セットアップ
+cortex-sync doctor               状態診断
+cortex-sync install              plist + launchd を idempotent に再配置
+cortex-sync uninstall            完全アンインストール
+```
+
+sync 用 flag:
 ```
 --config <path>      yaml/json 設定ファイル
 --dry-run            create/update/skip の判定だけ表示（API 呼び出しなし）
