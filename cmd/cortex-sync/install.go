@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/satocchi0416sh/cortex/internal/launchd"
@@ -42,15 +41,14 @@ func runInstall(ctx context.Context, args []string) int {
 	dbID := firstNonEmpty(*dbIDFlag, existing.DatabaseID, os.Getenv("CORTEX_NOTION_DATABASE_ID"))
 	scanRoot := firstNonEmpty(*scanRootFlag, existing.ScanRoot, os.Getenv("CORTEX_SCAN_ROOT"))
 	if scanRoot == "" {
-		home, _ := os.UserHomeDir()
-		scanRoot = filepath.Join(home, "Projects")
+		scanRoot = defaultScanRoot()
 	}
 	if dbID == "" {
 		fmt.Fprintln(os.Stderr, "✗ DB ID 未指定: --database-id か CORTEX_NOTION_DATABASE_ID か既存 wrapper が必要です")
 		return 2
 	}
 	// If user passed a URL via --database-id, normalize.
-	if id, perr := extractDatabaseID(dbID); perr == nil {
+	if id, err := extractDatabaseID(dbID); err == nil {
 		dbID = id
 	}
 
@@ -63,13 +61,8 @@ func runInstall(ctx context.Context, args []string) int {
 	// Soft-check schema if reachable; non-fatal if Notion API unreachable.
 	token, _ := keychainGet()
 	if token != "" {
-		client := notion.NewClient(notion.Options{
-			Token:      token,
-			DatabaseID: dbID,
-			RPS:        2.5,
-			Logger:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
-		})
-		if issues, verr := client.VerifyDatabaseSchema(ctx, dbID); verr == nil {
+		client := newNotionClient(token, dbID, 2.5, slog.LevelError)
+		if issues, err := client.VerifyDatabaseSchema(ctx, dbID); err == nil {
 			missing := notion.MissingFromIssues(issues)
 			if len(missing) > 0 {
 				fmt.Fprintln(os.Stderr, "! schema に不足プロパティあり:")
@@ -81,20 +74,7 @@ func runInstall(ctx context.Context, args []string) int {
 		}
 	}
 
-	plistData := launchd.PlistData{
-		Label:       launchd.Label,
-		WrapperPath: paths.WrapperPath,
-		HomeDir:     paths.HomeDir,
-		IntervalSec: *intervalSec,
-		OutLogPath:  paths.OutLogPath,
-		ErrLogPath:  paths.ErrLogPath,
-	}
-	wrapperData := launchd.WrapperData{
-		BinaryPath:      binaryPath,
-		DatabaseID:      dbID,
-		ScanRoot:        scanRoot,
-		KeychainService: keychainService,
-	}
+	plistData, wrapperData := buildLaunchdData(paths, binaryPath, dbID, scanRoot, *intervalSec)
 	if err := launchd.WriteFiles(paths, plistData, wrapperData); err != nil {
 		fmt.Fprintln(os.Stderr, "✗ plist 配置失敗:", err)
 		return 1

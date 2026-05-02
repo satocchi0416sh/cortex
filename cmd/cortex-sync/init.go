@@ -90,13 +90,7 @@ func runInit(ctx context.Context, args []string) int {
 
 	// [3/6] schema verify + auto-add missing
 	fmt.Println("[3/6] DB スキーマを検証中...")
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	client := notion.NewClient(notion.Options{
-		Token:      token,
-		DatabaseID: dbID,
-		RPS:        2.5,
-		Logger:     logger,
-	})
+	client := newNotionClient(token, dbID, 2.5, slog.LevelWarn)
 	info, err := client.GetDatabase(ctx, dbID)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "  ✗ DB 取得失敗:", err)
@@ -138,7 +132,7 @@ func runInit(ctx context.Context, args []string) int {
 	// [4/6] scan root
 	fmt.Println("[4/6] スキャンルートを設定")
 	home, _ := os.UserHomeDir()
-	defaultRoot := filepath.Join(home, "Projects")
+	defaultRoot := defaultScanRoot()
 	scanRoot := defaultRoot
 	rootField := huh.NewInput().
 		Title("Scan root").
@@ -171,20 +165,7 @@ func runInit(ctx context.Context, args []string) int {
 		fmt.Fprintln(os.Stderr, "  ✗ binary パス取得失敗:", err)
 		return 1
 	}
-	plistData := launchd.PlistData{
-		Label:       launchd.Label,
-		WrapperPath: paths.WrapperPath,
-		HomeDir:     paths.HomeDir,
-		IntervalSec: *intervalSec,
-		OutLogPath:  paths.OutLogPath,
-		ErrLogPath:  paths.ErrLogPath,
-	}
-	wrapperData := launchd.WrapperData{
-		BinaryPath:      binaryPath,
-		DatabaseID:      dbID,
-		ScanRoot:        scanRoot,
-		KeychainService: keychainService,
-	}
+	plistData, wrapperData := buildLaunchdData(paths, binaryPath, dbID, scanRoot, *intervalSec)
 	if err := launchd.WriteFiles(paths, plistData, wrapperData); err != nil {
 		fmt.Fprintln(os.Stderr, "  ✗ plist/wrapper 配置失敗:", err)
 		return 1
@@ -209,8 +190,7 @@ func runInit(ctx context.Context, args []string) int {
 		RPS:              2.5,
 		LogFormat:        "text",
 	}
-	dryLogger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	res, err := sync.New(cfg, dryLogger, true).Run(ctx)
+	res, err := sync.New(cfg, stderrLogger(slog.LevelWarn), true).Run(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "  ✗ dry-run 失敗:", err)
 		return 1

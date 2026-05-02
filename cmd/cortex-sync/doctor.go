@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/satocchi0416sh/cortex/internal/launchd"
 	"github.com/satocchi0416sh/cortex/internal/notion"
@@ -31,8 +30,6 @@ func runDoctor(ctx context.Context, args []string) int {
 		fmt.Fprintln(os.Stderr, "✗", err)
 		return 1
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-
 	failures := 0
 	check := func(ok bool, msg, hint string) {
 		if ok {
@@ -59,8 +56,8 @@ func runDoctor(ctx context.Context, args []string) int {
 	}
 
 	// 2. wrapper script + DB ID + scan root
-	wrapper, werr := readExistingWrapper(paths.WrapperPath)
-	if werr != nil {
+	wrapper, err := readExistingWrapper(paths.WrapperPath)
+	if err != nil {
 		check(false, "wrapper script "+paths.WrapperPath+" missing", "run `cortex-sync install`")
 	} else {
 		check(true, "wrapper script "+paths.WrapperPath+" present", "")
@@ -68,12 +65,7 @@ func runDoctor(ctx context.Context, args []string) int {
 
 	// 3. Notion API + DB schema
 	if token != "" && wrapper.DatabaseID != "" {
-		client := notion.NewClient(notion.Options{
-			Token:      token,
-			DatabaseID: wrapper.DatabaseID,
-			RPS:        5,
-			Logger:     logger,
-		})
+		client := newNotionClient(token, wrapper.DatabaseID, 5, slog.LevelError)
 		info, err := client.GetDatabase(ctx, wrapper.DatabaseID)
 		if err != nil {
 			check(false, "Notion API / DB unreachable", err.Error())
@@ -129,8 +121,7 @@ func runDoctor(ctx context.Context, args []string) int {
 	// 6. scan root + .md count
 	scanRoot := wrapper.ScanRoot
 	if scanRoot == "" {
-		home, _ := os.UserHomeDir()
-		scanRoot = filepath.Join(home, "Projects")
+		scanRoot = defaultScanRoot()
 	}
 	if _, err := os.Stat(scanRoot); err != nil {
 		check(false, "scan root "+scanRoot+" missing", "create it or set CORTEX_SCAN_ROOT")
