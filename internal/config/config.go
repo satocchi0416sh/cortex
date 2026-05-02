@@ -38,6 +38,18 @@ const (
 	defaultLogFormat = "text"
 )
 
+// DefaultScanRoot returns the canonical default scan root (~/Projects). It
+// returns an empty string when HOME cannot be resolved so that downstream
+// validation surfaces the missing-config error rather than silently using a
+// cwd-relative "Projects" path.
+func DefaultScanRoot() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, "Projects")
+}
+
 func Load(flags Flags) (*Config, error) {
 	cfg := &Config{
 		GlobPattern: defaultGlob,
@@ -60,12 +72,13 @@ func Load(flags Flags) (*Config, error) {
 		cfg.StateFile = flags.StateFile
 	}
 
-	home, _ := os.UserHomeDir()
-	if cfg.ScanRoot == "" && home != "" {
-		cfg.ScanRoot = filepath.Join(home, "Projects")
+	if cfg.ScanRoot == "" {
+		cfg.ScanRoot = DefaultScanRoot()
 	}
-	if cfg.StateFile == "" && home != "" {
-		cfg.StateFile = filepath.Join(home, ".cortex", "sync_state.json")
+	if cfg.StateFile == "" {
+		if home, _ := os.UserHomeDir(); home != "" {
+			cfg.StateFile = filepath.Join(home, ".cortex", "sync_state.json")
+		}
 	}
 
 	if err := cfg.validate(flags.DryRun); err != nil {

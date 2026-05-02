@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/satocchi0416sh/cortex/internal/config"
 	"github.com/satocchi0416sh/cortex/internal/launchd"
 	"github.com/satocchi0416sh/cortex/internal/notion"
 	"github.com/satocchi0416sh/cortex/internal/scanner"
@@ -121,7 +122,7 @@ func runDoctor(ctx context.Context, args []string) int {
 	// 6. scan root + .md count
 	scanRoot := wrapper.ScanRoot
 	if scanRoot == "" {
-		scanRoot = defaultScanRoot()
+		scanRoot = config.DefaultScanRoot()
 	}
 	if _, err := os.Stat(scanRoot); err != nil {
 		check(false, "scan root "+scanRoot+" missing", "create it or set CORTEX_SCAN_ROOT")

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/satocchi0416sh/cortex/internal/config"
 	"github.com/satocchi0416sh/cortex/internal/launchd"
 	"github.com/satocchi0416sh/cortex/internal/notion"
 )
@@ -41,7 +42,7 @@ func runInstall(ctx context.Context, args []string) int {
 	dbID := firstNonEmpty(*dbIDFlag, existing.DatabaseID, os.Getenv("CORTEX_NOTION_DATABASE_ID"))
 	scanRoot := firstNonEmpty(*scanRootFlag, existing.ScanRoot, os.Getenv("CORTEX_SCAN_ROOT"))
 	if scanRoot == "" {
-		scanRoot = defaultScanRoot()
+		scanRoot = config.DefaultScanRoot()
 	}
 	if dbID == "" {
 		fmt.Fprintln(os.Stderr, "✗ DB ID 未指定: --database-id か CORTEX_NOTION_DATABASE_ID か既存 wrapper が必要です")

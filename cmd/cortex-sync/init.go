@@ -132,7 +132,7 @@ func runInit(ctx context.Context, args []string) int {
 	// [4/6] scan root
 	fmt.Println("[4/6] スキャンルートを設定")
 	home, _ := os.UserHomeDir()
-	defaultRoot := defaultScanRoot()
+	defaultRoot := config.DefaultScanRoot()
 	scanRoot := defaultRoot
 	rootField := huh.NewInput().
 		Title("Scan root").

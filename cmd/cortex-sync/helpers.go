@@ -3,18 +3,10 @@ package main
 import (
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/satocchi0416sh/cortex/internal/launchd"
 	"github.com/satocchi0416sh/cortex/internal/notion"
 )
-
-// defaultScanRoot returns ~/Projects, falling back to "Projects" if HOME
-// resolution fails (matches the behavior previously inlined in init/install/doctor).
-func defaultScanRoot() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Projects")
-}
 
 // stderrLogger builds a text-format slog logger that writes to stderr at the
 // given level. Used by short-lived subcommands (init, install, doctor) where
