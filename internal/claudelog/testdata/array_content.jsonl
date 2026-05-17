@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"sess-array","cwd":"/home/me/arr","timestamp":"2026-05-17T10:00:00.000Z","message":{"role":"user","content":"q?"}}
+{"type":"assistant","sessionId":"sess-array","cwd":"/home/me/arr","timestamp":"2026-05-17T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hello"},{"type":"tool_use","name":"x"},{"type":"text","text":"world"}]}}

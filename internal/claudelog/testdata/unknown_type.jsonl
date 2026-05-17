@@ -1,0 +1,3 @@
+{"type":"user","sessionId":"sess-unk","cwd":"/u","timestamp":"2026-05-17T11:00:00.000Z","message":{"role":"user","content":"hi"}}
+{"type":"mystery-type","sessionId":"sess-unk","cwd":"/u","timestamp":"2026-05-17T11:00:01.000Z"}
+{"type":"assistant","sessionId":"sess-unk","cwd":"/u","timestamp":"2026-05-17T11:00:02.000Z","message":{"role":"assistant","content":"yo"}}

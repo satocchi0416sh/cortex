@@ -1,0 +1,3 @@
+{"type":"system","sessionId":"sess-sample","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:00.000Z"}
+{"type":"user","sessionId":"sess-sample","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:05.000Z","message":{"role":"user","content":"hello there"}}
+{"type":"assistant","sessionId":"sess-sample","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:06.000Z","message":{"role":"assistant","content":"hi back"}}

@@ -1,0 +1,3 @@
+{"type":"user","sessionId":"sess-sc","cwd":"/sc","timestamp":"2026-05-17T12:00:00.000Z","message":{"role":"user","content":"main user"}}
+{"type":"user","sessionId":"sess-sc","isSidechain":true,"cwd":"/sc","timestamp":"2026-05-17T12:00:01.000Z","message":{"role":"user","content":"sidechain user, must be dropped"}}
+{"type":"assistant","sessionId":"sess-sc","cwd":"/sc","timestamp":"2026-05-17T12:00:02.000Z","message":{"role":"assistant","content":"main assistant"}}
