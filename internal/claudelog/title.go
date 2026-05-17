@@ -41,9 +41,20 @@ func Title(s *Session) string {
 		if m.Role != "user" {
 			continue
 		}
-		if t := strings.TrimSpace(m.Text); t != "" {
-			return truncateTitle(t, maxFirstPromptLen)
+		t := strings.TrimSpace(m.Text)
+		if t == "" {
+			continue
 		}
+		// Issue #20: Claude Code injects system messages as the first user
+		// entry of slash-command / hook sessions (e.g.
+		// "<local-command-caveat>Caveat: ...", "<session-start-hook>OK").
+		// Layer 2 must skip these so the Notion Name column shows the
+		// actual user prompt instead of an identical caveat for every
+		// slash-command session.
+		if isSystemInjectedText(t) {
+			continue
+		}
+		return truncateTitle(t, maxFirstPromptLen)
 	}
 	sid := s.SessionID
 	if len(sid) > sessionIDPrefixLen {
@@ -68,4 +79,37 @@ func truncateTitle(s string, max int) string {
 		return s
 	}
 	return string(rs[:max]) + "…"
+}
+
+// systemInjectedPrefixes lists XML-style tags Claude Code injects as the
+// first user entry of slash-command / hook sessions. They are not human
+// prompts and must not surface in the Notion Name column.
+//
+// Patterns are limited to identifiers under Claude Code's own protocol
+// namespace (local-command-*, session-*-hook, command-*) so legitimate
+// user-authored content beginning with a tag (e.g. "<example>") is not
+// stripped. Match is anchored at the first non-space rune.
+var systemInjectedPrefixes = []string{
+	"<local-command-caveat>",
+	"<local-command-stdout>",
+	"<local-command-stderr>",
+	"<session-start-hook>",
+	"<session-end-hook>",
+	"<command-message>",
+	"<command-name>",
+	"<command-args>",
+	"<user-prompt-submit-hook>",
+}
+
+// isSystemInjectedText reports whether s starts with a known Claude Code
+// system-injected tag and should therefore not be used as a Title source.
+// Whitespace before the tag is tolerated; trailing content is irrelevant.
+func isSystemInjectedText(s string) bool {
+	trimmed := strings.TrimLeft(s, " \t\n\r")
+	for _, p := range systemInjectedPrefixes {
+		if strings.HasPrefix(trimmed, p) {
+			return true
+		}
+	}
+	return false
 }
