@@ -73,7 +73,7 @@ func TestLoadForClaudeLog_envApplied(t *testing.T) {
 	}
 }
 
-func TestLoadForClaudeLog_missingRequired(t *testing.T) {
+func TestLoadForClaudeLog_missingDBID(t *testing.T) {
 	t.Setenv("HOME", "/tmp/claudelog-missing-home")
 	t.Setenv("CORTEX_NOTION_TOKEN", "")
 	t.Setenv("CORTEX_CLAUDELOG_DATABASE_ID", "")
@@ -84,14 +84,37 @@ func TestLoadForClaudeLog_missingRequired(t *testing.T) {
 
 	_, err := LoadForClaudeLog(Flags{})
 	if err == nil {
-		t.Fatalf("expected error when token and DB ID missing")
+		t.Fatalf("expected error when DB ID missing")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "CORTEX_NOTION_TOKEN") {
-		t.Errorf("error missing CORTEX_NOTION_TOKEN: %s", msg)
-	}
 	if !strings.Contains(msg, "CORTEX_CLAUDELOG_DATABASE_ID") {
 		t.Errorf("error missing CORTEX_CLAUDELOG_DATABASE_ID: %s", msg)
+	}
+	// Issue #9: token must NOT be required at validate time so the caller's
+	// keychain fallback can fill it in before the final assert.
+	if strings.Contains(msg, "CORTEX_NOTION_TOKEN") {
+		t.Errorf("token should not be required at validate time (keychain fallback runs later): %s", msg)
+	}
+}
+
+func TestLoadForClaudeLog_acceptsEmptyToken(t *testing.T) {
+	t.Setenv("HOME", "/tmp/claudelog-empty-token-home")
+	t.Setenv("CORTEX_NOTION_TOKEN", "")
+	t.Setenv("CORTEX_CLAUDELOG_DATABASE_ID", "db-only")
+	t.Setenv("CORTEX_CLAUDE_PROJECTS_ROOT", "/tmp/cpr")
+	t.Setenv("CORTEX_NOTION_DATABASE_ID", "")
+	t.Setenv("CORTEX_SCAN_ROOT", "")
+	t.Setenv("CORTEX_STATE_FILE", "")
+
+	cfg, err := LoadForClaudeLog(Flags{})
+	if err != nil {
+		t.Fatalf("token-empty + DB-present should load OK (keychain fallback handled later): %v", err)
+	}
+	if cfg.NotionToken != "" {
+		t.Errorf("token should remain empty when env unset: got %q", cfg.NotionToken)
+	}
+	if cfg.ClaudeLogDatabaseID != "db-only" {
+		t.Errorf("DB ID should be applied: got %q", cfg.ClaudeLogDatabaseID)
 	}
 }
 

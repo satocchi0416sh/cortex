@@ -214,11 +214,14 @@ func LoadForClaudeLog(flags Flags) (*Config, error) {
 }
 
 func (c *Config) validateForClaudeLog(dryRun bool) error {
+	// NotionToken is intentionally NOT validated here. The claude-log
+	// subcommand falls back to the macOS keychain (populated by
+	// `cortex-sync init`) when env/config is empty, so the final
+	// "missing token" assert must happen at the runClaudeLog call site
+	// AFTER that fallback — not inside Load. (Issue #9: validate-before-
+	// keychain ordering blocked launchd-external manual runs.)
 	var missing []string
 	if !dryRun {
-		if c.NotionToken == "" {
-			missing = append(missing, "CORTEX_NOTION_TOKEN")
-		}
 		if c.ClaudeLogDatabaseID == "" {
 			missing = append(missing, "CORTEX_CLAUDELOG_DATABASE_ID")
 		}
