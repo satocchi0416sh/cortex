@@ -20,11 +20,12 @@ import (
 const usage = `cortex-sync — Notion sync for ~/Projects/*/.serena/memories/*.md
 
 Usage:
-  cortex-sync [flags]              run a single sync (default)
-  cortex-sync init                 interactive setup (token, DB, plist, launchd)
-  cortex-sync doctor               diagnose token / DB schema / plist / launchd
-  cortex-sync install              (re)install plist + launchd job (idempotent)
-  cortex-sync uninstall            remove plist, launchd job, keychain entry
+  cortex-sync [flags]                       run a single sync (default)
+  cortex-sync init                          interactive setup (token, DB, plist, launchd)
+  cortex-sync doctor                        diagnose token / DB schema / plist / launchd
+  cortex-sync install                       (re)install plist + launchd job (idempotent)
+  cortex-sync uninstall                     remove plist, launchd job, keychain entry
+  cortex-sync claude-log --session <uuid>   Claude Code JSONL を新規 Notion ページに 1 回同期
 
 Sync flags:
   --config <path>      yaml/json config file
@@ -56,6 +57,8 @@ func main() {
 		os.Exit(runInstall(ctx, rest))
 	case "uninstall":
 		os.Exit(runUninstall(ctx, rest))
+	case "claude-log":
+		os.Exit(runClaudeLog(ctx, rest))
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		os.Exit(0)
@@ -74,7 +77,7 @@ func splitSubcommand(args []string) (string, []string) {
 	}
 	first := args[0]
 	switch first {
-	case "init", "doctor", "install", "uninstall", "help", "-h", "--help":
+	case "init", "doctor", "install", "uninstall", "claude-log", "help", "-h", "--help":
 		return first, args[1:]
 	default:
 		return "", args
