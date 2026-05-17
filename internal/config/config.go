@@ -13,13 +13,15 @@ import (
 )
 
 type Config struct {
-	NotionToken      string  `json:"notion_token" yaml:"notion_token"`
-	NotionDatabaseID string  `json:"notion_database_id" yaml:"notion_database_id"`
-	ScanRoot         string  `json:"scan_root" yaml:"scan_root"`
-	StateFile        string  `json:"state_file" yaml:"state_file"`
-	GlobPattern      string  `json:"glob_pattern" yaml:"glob_pattern"`
-	RPS              float64 `json:"rps" yaml:"rps"`
-	LogFormat        string  `json:"log_format" yaml:"log_format"`
+	NotionToken         string  `json:"notion_token" yaml:"notion_token"`
+	NotionDatabaseID    string  `json:"notion_database_id" yaml:"notion_database_id"`
+	ScanRoot            string  `json:"scan_root" yaml:"scan_root"`
+	StateFile           string  `json:"state_file" yaml:"state_file"`
+	GlobPattern         string  `json:"glob_pattern" yaml:"glob_pattern"`
+	RPS                 float64 `json:"rps" yaml:"rps"`
+	LogFormat           string  `json:"log_format" yaml:"log_format"`
+	ClaudeLogDatabaseID string  `json:"claudelog_database_id" yaml:"claudelog_database_id"`
+	ClaudeProjectsRoot  string  `json:"claude_projects_root" yaml:"claude_projects_root"`
 }
 
 type Flags struct {
@@ -48,6 +50,18 @@ func DefaultScanRoot() string {
 		return ""
 	}
 	return filepath.Join(home, "Projects")
+}
+
+// DefaultClaudeProjectsRoot returns the canonical default Claude Code projects
+// root (~/.claude/projects). Returns an empty string when HOME cannot be
+// resolved so downstream validation surfaces the missing-config error rather
+// than silently using a cwd-relative path.
+func DefaultClaudeProjectsRoot() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "projects")
 }
 
 func Load(flags Flags) (*Config, error) {
@@ -126,6 +140,12 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("CORTEX_LOG_FORMAT"); v != "" {
 		cfg.LogFormat = strings.ToLower(v)
 	}
+	if v := os.Getenv("CORTEX_CLAUDELOG_DATABASE_ID"); v != "" {
+		cfg.ClaudeLogDatabaseID = v
+	}
+	if v := os.Getenv("CORTEX_CLAUDE_PROJECTS_ROOT"); v != "" {
+		cfg.ClaudeProjectsRoot = v
+	}
 }
 
 func (c *Config) validate(dryRun bool) error {
@@ -143,6 +163,68 @@ func (c *Config) validate(dryRun bool) error {
 	}
 	if c.StateFile == "" {
 		missing = append(missing, "state_file")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required config: %s", strings.Join(missing, ", "))
+	}
+	if c.RPS <= 0 {
+		return errors.New("rps must be > 0")
+	}
+	return nil
+}
+
+// LoadForClaudeLog builds a Config tailored for the claude-log subcommand.
+// It shares file/env layering with Load but applies claude-log-specific
+// defaults (Claude projects root, dedicated state file path) and validation
+// (requires ClaudeLogDatabaseID + ClaudeProjectsRoot rather than the markdown
+// sync DB ID and scan root). Load is intentionally untouched so the existing
+// markdown sync path keeps its exact behaviour.
+func LoadForClaudeLog(flags Flags) (*Config, error) {
+	cfg := &Config{
+		GlobPattern: defaultGlob,
+		RPS:         defaultRPS,
+		LogFormat:   defaultLogFormat,
+	}
+
+	if flags.ConfigPath != "" {
+		if err := loadFile(flags.ConfigPath, cfg); err != nil {
+			return nil, fmt.Errorf("config file: %w", err)
+		}
+	}
+
+	applyEnv(cfg)
+
+	if flags.StateFile != "" {
+		cfg.StateFile = flags.StateFile
+	}
+
+	if cfg.ClaudeProjectsRoot == "" {
+		cfg.ClaudeProjectsRoot = DefaultClaudeProjectsRoot()
+	}
+	if cfg.StateFile == "" {
+		if home, _ := os.UserHomeDir(); home != "" {
+			cfg.StateFile = filepath.Join(home, ".cortex", "claudelog_state.json")
+		}
+	}
+
+	if err := cfg.validateForClaudeLog(flags.DryRun); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func (c *Config) validateForClaudeLog(dryRun bool) error {
+	var missing []string
+	if !dryRun {
+		if c.NotionToken == "" {
+			missing = append(missing, "CORTEX_NOTION_TOKEN")
+		}
+		if c.ClaudeLogDatabaseID == "" {
+			missing = append(missing, "CORTEX_CLAUDELOG_DATABASE_ID")
+		}
+	}
+	if c.ClaudeProjectsRoot == "" {
+		missing = append(missing, "claude_projects_root")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required config: %s", strings.Join(missing, ", "))
