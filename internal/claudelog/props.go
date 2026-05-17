@@ -26,12 +26,18 @@ func BuildProperties(s *Session, srcPath string, now time.Time) notion.ClaudeLog
 	if title == "" {
 		title = "claude-log"
 	}
+	var lastUUID string
+	if n := len(s.Messages); n > 0 {
+		lastUUID = s.Messages[n-1].UUID
+	}
 	return notion.ClaudeLogProperties{
-		Title:      title,
-		SessionID:  s.SessionID,
-		Project:    s.Cwd,
-		SourcePath: srcPath,
-		StartedAt:  s.StartedAt,
-		LastSynced: now.UTC(),
+		Title:        title,
+		SessionID:    s.SessionID,
+		Project:      s.Cwd,
+		SourcePath:   srcPath,
+		StartedAt:    s.StartedAt,
+		LastSynced:   now.UTC(),
+		LastUUID:     lastUUID,
+		MessageCount: len(s.Messages),
 	}
 }
