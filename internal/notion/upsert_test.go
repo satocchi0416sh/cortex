@@ -364,14 +364,15 @@ func TestUpdateClaudeLogCursorProperties_BodyShape(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "page-1"})
 	})
 	when := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
-	if err := c.UpdateClaudeLogCursorProperties(context.Background(), "page-1", "uuid-9", 12, when); err != nil {
+	updated := time.Date(2026, 5, 17, 9, 30, 0, 0, time.UTC)
+	if err := c.UpdateClaudeLogCursorProperties(context.Background(), "page-1", "uuid-9", 12, when, updated); err != nil {
 		t.Fatalf("UpdateClaudeLogCursorProperties: %v", err)
 	}
 	props, ok := captured["properties"].(map[string]any)
 	if !ok {
 		t.Fatalf("missing properties: %v", captured)
 	}
-	allowed := map[string]struct{}{"Last UUID": {}, "Message Count": {}, "Last Synced": {}}
+	allowed := map[string]struct{}{"Last UUID": {}, "Message Count": {}, "Last Synced": {}, "Last Updated": {}}
 	for name := range props {
 		if _, ok := allowed[name]; !ok {
 			t.Errorf("body contains forbidden property %q (partial PATCH must be cursor-only)", name)
@@ -389,6 +390,33 @@ func TestUpdateClaudeLogCursorProperties_BodyShape(t *testing.T) {
 	date, ok := props["Last Synced"].(map[string]any)["date"].(map[string]any)
 	if !ok || date["start"] != when.Format(time.RFC3339) {
 		t.Errorf("Last Synced = %v", props["Last Synced"])
+	}
+	upDate, ok := props["Last Updated"].(map[string]any)["date"].(map[string]any)
+	if !ok || upDate["start"] != updated.Format(time.RFC3339) {
+		t.Errorf("Last Updated = %v, want %v", props["Last Updated"], updated.Format(time.RFC3339))
+	}
+}
+
+// TestUpdateClaudeLogCursorProperties_OmitsLastUpdatedOnZero (Issue #24):
+// passing zero-value lastUpdated must omit "Last Updated" from PATCH body so
+// existing values are preserved during cursor-only no-op refresh cycles.
+func TestUpdateClaudeLogCursorProperties_OmitsLastUpdatedOnZero(t *testing.T) {
+	var captured map[string]any
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "page-1"})
+	})
+	when := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
+	if err := c.UpdateClaudeLogCursorProperties(context.Background(), "page-1", "uuid-9", 12, when, time.Time{}); err != nil {
+		t.Fatalf("UpdateClaudeLogCursorProperties: %v", err)
+	}
+	props, _ := captured["properties"].(map[string]any)
+	if _, present := props["Last Updated"]; present {
+		t.Errorf("Last Updated must be omitted when zero, got %v", props["Last Updated"])
+	}
+	if _, ok := props["Last Synced"]; !ok {
+		t.Errorf("Last Synced still required when only lastUpdated is zero")
 	}
 }
 
