@@ -274,6 +274,7 @@ func claudeLogDBPayload(overrides map[string]map[string]any) map[string]any {
 		"Started At":    {"id": "4", "name": "Started At", "type": "date"},
 		"Source Path":   {"id": "5", "name": "Source Path", "type": "rich_text"},
 		"Last Synced":   {"id": "6", "name": "Last Synced", "type": "date"},
+		"Last Updated":  {"id": "9", "name": "Last Updated", "type": "date"},
 		"Last UUID":     {"id": "7", "name": "Last UUID", "type": "rich_text"},
 		"Message Count": {"id": "8", "name": "Message Count", "type": "number"},
 	}

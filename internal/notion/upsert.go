@@ -255,6 +255,12 @@ type ClaudeLogProperties struct {
 	SourcePath   string
 	StartedAt    time.Time
 	LastSynced   time.Time
+	// LastUpdated tracks the last time NEW messages were actually appended
+	// (Issue #24). Distinct from LastSynced (which refreshes on every poll
+	// even with no diff) so callers can answer "when was this session last
+	// active?" without scanning Message Count history. Zero value is
+	// omit-on-write to preserve any existing value during cursor-only updates.
+	LastUpdated  time.Time
 	LastUUID     string
 	MessageCount int
 }
@@ -290,6 +296,11 @@ func (p ClaudeLogProperties) toMap() map[string]any {
 	if !p.LastSynced.IsZero() {
 		out["Last Synced"] = map[string]any{
 			"date": map[string]any{"start": p.LastSynced.UTC().Format(time.RFC3339)},
+		}
+	}
+	if !p.LastUpdated.IsZero() {
+		out["Last Updated"] = map[string]any{
+			"date": map[string]any{"start": p.LastUpdated.UTC().Format(time.RFC3339)},
 		}
 	}
 	if p.LastUUID != "" {
@@ -357,11 +368,16 @@ func (c *Client) GetPageLastUUID(ctx context.Context, pageID string) (string, er
 	return content, nil
 }
 
-// UpdateClaudeLogCursorProperties PATCH-es only the three dynamic cursor
-// properties (Last UUID, Message Count, Last Synced) on an existing claude-log
-// page. Partial PATCH: only the 3 dynamic cursor props are sent so we don't
-// clobber Title/SessionID/StartedAt/Project/SourcePath set at create time.
-func (c *Client) UpdateClaudeLogCursorProperties(ctx context.Context, pageID, lastUUID string, messageCount int, lastSynced time.Time) error {
+// UpdateClaudeLogCursorProperties PATCH-es the dynamic cursor properties on
+// an existing claude-log page: Last UUID, Message Count, Last Synced (always),
+// plus Last Updated (only when non-zero). Partial PATCH so we don't clobber
+// Title/SessionID/StartedAt/Project/SourcePath set at create time.
+//
+// Issue #24: passing a zero-value lastUpdated explicitly omits "Last Updated"
+// from the PATCH body, which preserves any existing value. Callers in the
+// "no-op refresh" path (appendPath with blocks=0) use zero to signal "this
+// poll detected nothing new, keep the last activity timestamp intact".
+func (c *Client) UpdateClaudeLogCursorProperties(ctx context.Context, pageID, lastUUID string, messageCount int, lastSynced, lastUpdated time.Time) error {
 	props := map[string]any{
 		"Last UUID": map[string]any{
 			"rich_text": []map[string]any{
@@ -372,6 +388,11 @@ func (c *Client) UpdateClaudeLogCursorProperties(ctx context.Context, pageID, la
 		"Last Synced": map[string]any{
 			"date": map[string]any{"start": lastSynced.UTC().Format(time.RFC3339)},
 		},
+	}
+	if !lastUpdated.IsZero() {
+		props["Last Updated"] = map[string]any{
+			"date": map[string]any{"start": lastUpdated.UTC().Format(time.RFC3339)},
+		}
 	}
 	body := map[string]any{"properties": props}
 	return c.do(ctx, "PATCH", "/pages/"+pageID, body, nil)

@@ -26,7 +26,7 @@ type NotionGateway interface {
 	CreatePageClaudeLog(ctx context.Context, dbID string, props notion.ClaudeLogProperties, blocks []map[string]any) (string, error)
 	GetPageLastUUID(ctx context.Context, pageID string) (string, error)
 	AppendNewChildren(ctx context.Context, pageID string, blocks []map[string]any) error
-	UpdateClaudeLogCursorProperties(ctx context.Context, pageID, lastUUID string, messageCount int, lastSynced time.Time) error
+	UpdateClaudeLogCursorProperties(ctx context.Context, pageID, lastUUID string, messageCount int, lastSynced, lastUpdated time.Time) error
 }
 
 // ErrCursorStale is returned (wrapped) when the persisted Last UUID cursor no
@@ -155,7 +155,9 @@ func (r *Runner) createPath(ctx context.Context, session *Session, props notion.
 		return nil, fmt.Errorf("create page: %w", err)
 	}
 	syncedAt := r.now().UTC()
-	if err := r.gateway.UpdateClaudeLogCursorProperties(ctx, pageID, props.LastUUID, props.MessageCount, syncedAt); err != nil {
+	// Issue #24: createPath always writes new content, so Last Updated
+	// gets the same timestamp as Last Synced on the initial seed.
+	if err := r.gateway.UpdateClaudeLogCursorProperties(ctx, pageID, props.LastUUID, props.MessageCount, syncedAt, syncedAt); err != nil {
 		// Page creation already succeeded; failing here would leave the cursor
 		// unset which next run will detect via empty Last UUID and treat as a
 		// fresh-cursor path. Surface the error so the user can re-run.
@@ -210,7 +212,10 @@ func (r *Runner) appendPath(ctx context.Context, session *Session, props notion.
 		// the latest poll. props.LastUUID + props.MessageCount are the
 		// already-current totals, so passing them is a no-op write that keeps
 		// the row internally consistent.
-		if err := r.gateway.UpdateClaudeLogCursorProperties(ctx, pageID, props.LastUUID, props.MessageCount, syncedAt); err != nil {
+		// Issue #24: Last Updated gets a zero-value (omit-on-write) so the
+		// "last activity" timestamp keeps its existing value rather than
+		// drifting forward with every poll.
+		if err := r.gateway.UpdateClaudeLogCursorProperties(ctx, pageID, props.LastUUID, props.MessageCount, syncedAt, time.Time{}); err != nil {
 			return nil, fmt.Errorf("refresh last synced: %w", err)
 		}
 		if r.state != nil {
@@ -232,7 +237,10 @@ func (r *Runner) appendPath(ctx context.Context, session *Session, props notion.
 	if err := r.gateway.AppendNewChildren(ctx, pageID, blocks); err != nil {
 		return nil, fmt.Errorf("append new children: %w", err)
 	}
-	if err := r.gateway.UpdateClaudeLogCursorProperties(ctx, pageID, props.LastUUID, props.MessageCount, syncedAt); err != nil {
+	// Issue #24: blocks>0 means new content was just appended, so Last
+	// Updated reflects "when activity actually happened" alongside the
+	// always-refreshed Last Synced.
+	if err := r.gateway.UpdateClaudeLogCursorProperties(ctx, pageID, props.LastUUID, props.MessageCount, syncedAt, syncedAt); err != nil {
 		return nil, fmt.Errorf("update cursor properties: %w", err)
 	}
 	if r.state != nil {

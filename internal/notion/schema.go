@@ -61,6 +61,7 @@ var ClaudeLogRequiredProperties = []PropDef{
 	{Name: "Started At", Type: "date"},
 	{Name: "Source Path", Type: "rich_text"},
 	{Name: "Last Synced", Type: "date"},
+	{Name: "Last Updated", Type: "date"},
 	{Name: "Last UUID", Type: "rich_text"},
 	{Name: "Message Count", Type: "number"},
 }

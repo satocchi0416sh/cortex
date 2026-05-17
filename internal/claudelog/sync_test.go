@@ -13,9 +13,10 @@ import (
 )
 
 type capturedCursor struct {
-	UUID  string
-	Count int
-	Time  time.Time
+	UUID    string
+	Count   int
+	Time    time.Time
+	Updated time.Time // Issue #24: zero means "Last Updated was omitted"
 }
 
 type fakeGateway struct {
@@ -73,9 +74,9 @@ func (f *fakeGateway) AppendNewChildren(_ context.Context, _ string, blocks []ma
 	return f.appendErr
 }
 
-func (f *fakeGateway) UpdateClaudeLogCursorProperties(_ context.Context, _, lastUUID string, messageCount int, lastSynced time.Time) error {
+func (f *fakeGateway) UpdateClaudeLogCursorProperties(_ context.Context, _, lastUUID string, messageCount int, lastSynced, lastUpdated time.Time) error {
 	f.updateCursorCalls++
-	f.lastCursor = capturedCursor{UUID: lastUUID, Count: messageCount, Time: lastSynced}
+	f.lastCursor = capturedCursor{UUID: lastUUID, Count: messageCount, Time: lastSynced, Updated: lastUpdated}
 	return f.updateCursorErr
 }
 
@@ -340,6 +341,58 @@ func TestRunner_UpToDateUpdatesSyncedOnly(t *testing.T) {
 	}
 	if g.updateCursorCalls != 1 {
 		t.Errorf("updateCursorCalls = %d, want 1 (Last Synced refresh)", g.updateCursorCalls)
+	}
+	// Issue #24: no-op refresh must NOT bump Last Updated.
+	if !g.lastCursor.Updated.IsZero() {
+		t.Errorf("Last Updated must be zero on no-op refresh, got %v", g.lastCursor.Updated)
+	}
+	if g.lastCursor.Time.IsZero() {
+		t.Errorf("Last Synced must still be set on no-op refresh, got zero")
+	}
+}
+
+// TestRunner_AppendBumpsLastUpdated (Issue #24): when new blocks are appended,
+// Last Updated must move forward together with Last Synced.
+func TestRunner_AppendBumpsLastUpdated(t *testing.T) {
+	g := &fakeGateway{findID: "page-1"}
+	state := newTempState(t)
+	state.Set("sess-ext", SessionEntry{
+		PageID:       "page-1",
+		LastUUID:     "uuid-3", // jsonl has uuid-1..uuid-5, so uuid-4 + uuid-5 are new
+		MessageCount: 3,
+	})
+	r := NewRunner(g, "claudelog-db", "testdata/sample_extended.jsonl", state, newSilentLogger(), false)
+	res, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.Updated {
+		t.Fatalf("expected Updated=true, got %+v", res)
+	}
+	if g.appendCalls != 1 {
+		t.Errorf("appendCalls = %d, want 1", g.appendCalls)
+	}
+	if g.lastCursor.Updated.IsZero() {
+		t.Errorf("Last Updated must be non-zero on real append, got zero")
+	}
+	if !g.lastCursor.Updated.Equal(g.lastCursor.Time) {
+		t.Errorf("Last Updated should equal Last Synced on append (both = syncedAt); got updated=%v synced=%v",
+			g.lastCursor.Updated, g.lastCursor.Time)
+	}
+}
+
+// TestRunner_CreateSeedsLastUpdated (Issue #24): the initial createPath seed
+// must populate Last Updated so brand-new pages have a meaningful "first
+// activity" timestamp.
+func TestRunner_CreateSeedsLastUpdated(t *testing.T) {
+	g := &fakeGateway{createID: "page-created"}
+	state := newTempState(t)
+	r := NewRunner(g, "claudelog-db", "testdata/sample.jsonl", state, newSilentLogger(), false)
+	if _, err := r.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if g.lastCursor.Updated.IsZero() {
+		t.Errorf("Last Updated must be seeded on create, got zero")
 	}
 }
 
