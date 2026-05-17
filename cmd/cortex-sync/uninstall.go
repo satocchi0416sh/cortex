@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/satocchi0416sh/cortex/internal/launchd"
@@ -35,33 +36,62 @@ func runUninstall(ctx context.Context, args []string) int {
 	}
 	var results []result
 
-	// 1. bootout (best-effort)
+	// 1. markdown-sync bootout (best-effort)
 	if err := launchd.Bootout(ctx, paths); err != nil {
-		results = append(results, result{Step: "launchctl bootout", Note: "skipped (" + err.Error() + ")"})
+		results = append(results, result{Step: "launchctl bootout (markdown)", Note: "skipped (" + err.Error() + ")"})
 	} else {
-		results = append(results, result{Step: "launchctl bootout", Note: "ok"})
+		results = append(results, result{Step: "launchctl bootout (markdown)", Note: "ok"})
 	}
 
-	// 2. plist
+	// 1b. claude-log bootout (best-effort, may not exist)
+	if err := launchd.BootoutClaudeLog(ctx, paths); err != nil {
+		results = append(results, result{Step: "launchctl bootout (claude-log)", Note: "skipped (" + err.Error() + ")"})
+	} else {
+		results = append(results, result{Step: "launchctl bootout (claude-log)", Note: "ok"})
+	}
+
+	// 2. markdown plist
 	if err := os.Remove(paths.PlistPath); err != nil {
 		if os.IsNotExist(err) {
-			results = append(results, result{Step: "plist", Note: "(not present)"})
+			results = append(results, result{Step: "plist (markdown)", Note: "(not present)"})
 		} else {
-			results = append(results, result{Step: "plist", Note: "error: " + err.Error()})
+			results = append(results, result{Step: "plist (markdown)", Note: "error: " + err.Error()})
 		}
 	} else {
-		results = append(results, result{Step: "plist", Note: "removed " + paths.PlistPath})
+		results = append(results, result{Step: "plist (markdown)", Note: "removed " + paths.PlistPath})
 	}
 
-	// 3. wrapper script
-	if err := os.Remove(paths.WrapperPath); err != nil {
+	// 2b. claude-log plist
+	if err := os.Remove(paths.ClaudeLogPlistPath); err != nil {
 		if os.IsNotExist(err) {
-			results = append(results, result{Step: "wrapper", Note: "(not present)"})
+			results = append(results, result{Step: "plist (claude-log)", Note: "(not present)"})
 		} else {
-			results = append(results, result{Step: "wrapper", Note: "error: " + err.Error()})
+			results = append(results, result{Step: "plist (claude-log)", Note: "error: " + err.Error()})
 		}
 	} else {
-		results = append(results, result{Step: "wrapper", Note: "removed " + paths.WrapperPath})
+		results = append(results, result{Step: "plist (claude-log)", Note: "removed " + paths.ClaudeLogPlistPath})
+	}
+
+	// 3. markdown wrapper script
+	if err := os.Remove(paths.WrapperPath); err != nil {
+		if os.IsNotExist(err) {
+			results = append(results, result{Step: "wrapper (markdown)", Note: "(not present)"})
+		} else {
+			results = append(results, result{Step: "wrapper (markdown)", Note: "error: " + err.Error()})
+		}
+	} else {
+		results = append(results, result{Step: "wrapper (markdown)", Note: "removed " + paths.WrapperPath})
+	}
+
+	// 3b. claude-log wrapper script
+	if err := os.Remove(paths.ClaudeLogWrapperPath); err != nil {
+		if os.IsNotExist(err) {
+			results = append(results, result{Step: "wrapper (claude-log)", Note: "(not present)"})
+		} else {
+			results = append(results, result{Step: "wrapper (claude-log)", Note: "error: " + err.Error()})
+		}
+	} else {
+		results = append(results, result{Step: "wrapper (claude-log)", Note: "removed " + paths.ClaudeLogWrapperPath})
 	}
 
 	// 4. keychain entry
@@ -75,15 +105,27 @@ func runUninstall(ctx context.Context, args []string) int {
 		results = append(results, result{Step: "keychain", Note: "removed (service=" + keychainService + ")"})
 	}
 
-	// 5. state file (confirm unless --delete-state or --yes)
-	statePath := filepath.Join(paths.HomeDir, ".cortex", "sync_state.json")
-	if _, err := os.Stat(statePath); err == nil {
+	// 5. state files (confirm unless --delete-state or --yes). Both markdown
+	// sync and claude-log use atomic local state files under ~/.cortex; a
+	// single confirmation deletes whichever exist so the prompt count stays at
+	// one regardless of which jobs the user had installed.
+	statePaths := []string{
+		filepath.Join(paths.HomeDir, ".cortex", "sync_state.json"),
+		filepath.Join(paths.HomeDir, ".cortex", "claudelog_state.json"),
+	}
+	existingStates := make([]string, 0, len(statePaths))
+	for _, sp := range statePaths {
+		if _, err := os.Stat(sp); err == nil {
+			existingStates = append(existingStates, sp)
+		}
+	}
+	if len(existingStates) > 0 {
 		shouldDelete := *deleteState
 		if !shouldDelete && !*yes {
 			confirmed := false
 			confirm := huh.NewConfirm().
-				Title("state file " + statePath + " も削除しますか？").
-				Description("削除すると次回 sync で全 page が create 経路（重複ページ生成リスク）").
+				Title("state file(s) も削除しますか？").
+				Description("対象: " + strings.Join(existingStates, ", ") + "\n削除すると次回 sync で全 page が create 経路（重複ページ生成リスク）").
 				Affirmative("Yes").
 				Negative("No (default)").
 				Value(&confirmed)
@@ -98,14 +140,16 @@ func runUninstall(ctx context.Context, args []string) int {
 			}
 			shouldDelete = confirmed
 		}
-		if shouldDelete {
-			if err := os.Remove(statePath); err != nil {
-				results = append(results, result{Step: "state", Note: "error: " + err.Error()})
+		for _, sp := range existingStates {
+			if shouldDelete {
+				if err := os.Remove(sp); err != nil {
+					results = append(results, result{Step: "state " + filepath.Base(sp), Note: "error: " + err.Error()})
+				} else {
+					results = append(results, result{Step: "state " + filepath.Base(sp), Note: "removed " + sp})
+				}
 			} else {
-				results = append(results, result{Step: "state", Note: "removed " + statePath})
+				results = append(results, result{Step: "state " + filepath.Base(sp), Note: "kept " + sp})
 			}
-		} else {
-			results = append(results, result{Step: "state", Note: "kept " + statePath})
 		}
 	} else {
 		results = append(results, result{Step: "state", Note: "(not present)"})
@@ -113,7 +157,7 @@ func runUninstall(ctx context.Context, args []string) int {
 
 	fmt.Println("cortex-sync uninstall summary:")
 	for _, r := range results {
-		fmt.Printf("  %-20s %s\n", r.Step, r.Note)
+		fmt.Printf("  %-32s %s\n", r.Step, r.Note)
 	}
 	return 0
 }
