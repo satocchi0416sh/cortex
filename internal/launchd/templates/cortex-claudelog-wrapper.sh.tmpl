@@ -1,0 +1,8 @@
+#!/bin/zsh
+set -eu
+export CORTEX_NOTION_TOKEN="$(security find-generic-password -s {{.KeychainService}} -w)"
+export CORTEX_CLAUDELOG_DATABASE_ID="{{.DatabaseID}}"
+{{- if .ClaudeProjectsRoot }}
+export CORTEX_CLAUDE_PROJECTS_ROOT="{{.ClaudeProjectsRoot}}"
+{{- end }}
+exec {{.BinaryPath}} claude-log --all
