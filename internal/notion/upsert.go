@@ -206,14 +206,19 @@ func (c *Client) ReplaceChildren(ctx context.Context, pageID string, blocks []ma
 
 // ClaudeLogProperties captures the schema the claude-log subcommand writes to
 // its dedicated Notion DB. Fields with zero values are omitted from the
-// emitted map so partial updates do not clobber existing data.
+// emitted map so partial updates do not clobber existing data. In particular
+// LastUUID == "" and MessageCount == 0 are treated as "don't write this
+// cursor field" so initial CreatePage calls (which set Title/SessionID/etc.
+// but not yet the cursor) do not zero out an existing cursor on re-create.
 type ClaudeLogProperties struct {
-	Title      string
-	SessionID  string
-	Project    string
-	SourcePath string
-	StartedAt  time.Time
-	LastSynced time.Time
+	Title        string
+	SessionID    string
+	Project      string
+	SourcePath   string
+	StartedAt    time.Time
+	LastSynced   time.Time
+	LastUUID     string
+	MessageCount int
 }
 
 func (p ClaudeLogProperties) toMap() map[string]any {
@@ -249,7 +254,89 @@ func (p ClaudeLogProperties) toMap() map[string]any {
 			"date": map[string]any{"start": p.LastSynced.UTC().Format(time.RFC3339)},
 		}
 	}
+	if p.LastUUID != "" {
+		out["Last UUID"] = map[string]any{
+			"rich_text": []map[string]any{
+				{"type": "text", "text": map[string]any{"content": p.LastUUID}},
+			},
+		}
+	}
+	// MessageCount == 0 means "session has no messages yet" which is
+	// effectively the same as "don't bother writing a cursor"; treat it as
+	// omit so we never clobber a non-zero count with a stale zero.
+	if p.MessageCount != 0 {
+		out["Message Count"] = map[string]any{"number": p.MessageCount}
+	}
 	return out
+}
+
+// AppendNewChildren PATCH-es block children onto an existing page in chunks of
+// blocksPerRequest. Unlike ReplaceChildren this is purely additive — existing
+// children (including user-authored comments) are never touched. Used by the
+// claude-log incremental sync path. Returns nil for an empty input slice.
+func (c *Client) AppendNewChildren(ctx context.Context, pageID string, blocks []map[string]any) error {
+	for _, chunk := range ChunkBlocks(blocks) {
+		if err := c.AppendChildren(ctx, pageID, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetPageLastUUID fetches the page and extracts the "Last UUID" rich_text
+// property's plain text. Returns "" (not an error) when the property is
+// absent, empty, or unparseable so callers can use it as an AC5 fallback when
+// no local state file is present.
+func (c *Client) GetPageLastUUID(ctx context.Context, pageID string) (string, error) {
+	var resp struct {
+		Properties map[string]any `json:"properties"`
+	}
+	if err := c.do(ctx, "GET", "/pages/"+pageID, nil, &resp); err != nil {
+		return "", err
+	}
+	prop, ok := resp.Properties["Last UUID"].(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	rtRaw, ok := prop["rich_text"].([]any)
+	if !ok || len(rtRaw) == 0 {
+		return "", nil
+	}
+	first, ok := rtRaw[0].(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	// Prefer plain_text (Notion's flattened convenience field); fall back to
+	// text.content for clients/tests that don't synthesise it.
+	if plain, ok := first["plain_text"].(string); ok && plain != "" {
+		return plain, nil
+	}
+	textObj, ok := first["text"].(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	content, _ := textObj["content"].(string)
+	return content, nil
+}
+
+// UpdateClaudeLogCursorProperties PATCH-es only the three dynamic cursor
+// properties (Last UUID, Message Count, Last Synced) on an existing claude-log
+// page. Partial PATCH: only the 3 dynamic cursor props are sent so we don't
+// clobber Title/SessionID/StartedAt/Project/SourcePath set at create time.
+func (c *Client) UpdateClaudeLogCursorProperties(ctx context.Context, pageID, lastUUID string, messageCount int, lastSynced time.Time) error {
+	props := map[string]any{
+		"Last UUID": map[string]any{
+			"rich_text": []map[string]any{
+				{"type": "text", "text": map[string]any{"content": lastUUID}},
+			},
+		},
+		"Message Count": map[string]any{"number": messageCount},
+		"Last Synced": map[string]any{
+			"date": map[string]any{"start": lastSynced.UTC().Format(time.RFC3339)},
+		},
+	}
+	body := map[string]any{"properties": props}
+	return c.do(ctx, "PATCH", "/pages/"+pageID, body, nil)
 }
 
 // CreatePageClaudeLog creates a new Notion page in the supplied claude-log
