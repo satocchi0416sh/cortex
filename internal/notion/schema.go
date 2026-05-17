@@ -50,7 +50,10 @@ var RequiredProperties = []PropDef{
 }
 
 // ClaudeLogRequiredProperties is the canonical schema the claude-log
-// subcommand expects on the dedicated Notion DB.
+// subcommand expects on the dedicated Notion DB. "Last UUID" and "Message
+// Count" are the cursor properties consumed by the incremental append path:
+// they let a second invocation locate where the previous sync stopped without
+// relying solely on a local state file.
 var ClaudeLogRequiredProperties = []PropDef{
 	{Name: "Name", Type: "title"},
 	{Name: "Session ID", Type: "rich_text"},
@@ -58,6 +61,8 @@ var ClaudeLogRequiredProperties = []PropDef{
 	{Name: "Started At", Type: "date"},
 	{Name: "Source Path", Type: "rich_text"},
 	{Name: "Last Synced", Type: "date"},
+	{Name: "Last UUID", Type: "rich_text"},
+	{Name: "Message Count", Type: "number"},
 }
 
 // DatabaseInfo is the subset of GET /v1/databases/{id} we care about.

@@ -268,12 +268,14 @@ func TestEnsureProperties_NoOpForEmpty(t *testing.T) {
 
 func claudeLogDBPayload(overrides map[string]map[string]any) map[string]any {
 	props := map[string]map[string]any{
-		"Name":        {"id": "1", "name": "Name", "type": "title"},
-		"Session ID":  {"id": "2", "name": "Session ID", "type": "rich_text"},
-		"Project":     {"id": "3", "name": "Project", "type": "rich_text"},
-		"Started At":  {"id": "4", "name": "Started At", "type": "date"},
-		"Source Path": {"id": "5", "name": "Source Path", "type": "rich_text"},
-		"Last Synced": {"id": "6", "name": "Last Synced", "type": "date"},
+		"Name":          {"id": "1", "name": "Name", "type": "title"},
+		"Session ID":    {"id": "2", "name": "Session ID", "type": "rich_text"},
+		"Project":       {"id": "3", "name": "Project", "type": "rich_text"},
+		"Started At":    {"id": "4", "name": "Started At", "type": "date"},
+		"Source Path":   {"id": "5", "name": "Source Path", "type": "rich_text"},
+		"Last Synced":   {"id": "6", "name": "Last Synced", "type": "date"},
+		"Last UUID":     {"id": "7", "name": "Last UUID", "type": "rich_text"},
+		"Message Count": {"id": "8", "name": "Message Count", "type": "number"},
 	}
 	for name, replacement := range overrides {
 		if replacement == nil {
@@ -321,6 +323,29 @@ func TestDiffSchema_ClaudeLogMissing(t *testing.T) {
 		t.Fatalf("expected 2 missing, got %d", len(missing))
 	}
 	wantNames := map[string]string{"Session ID": "rich_text", "Source Path": "rich_text"}
+	for _, m := range missing {
+		if wantNames[m.Name] != m.Type {
+			t.Errorf("unexpected missing property: %+v", m)
+		}
+	}
+}
+
+func TestDiffSchema_ClaudeLogCursorPropsMissing(t *testing.T) {
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(claudeLogDBPayload(map[string]map[string]any{
+			"Last UUID":     nil,
+			"Message Count": nil,
+		}))
+	})
+	issues, err := c.VerifyDatabaseSchemaWith(context.Background(), "db123", ClaudeLogRequiredProperties)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 missing issues, got %d: %v", len(issues), issues)
+	}
+	missing := MissingFromIssues(issues)
+	wantNames := map[string]string{"Last UUID": "rich_text", "Message Count": "number"}
 	for _, m := range missing {
 		if wantNames[m.Name] != m.Type {
 			t.Errorf("unexpected missing property: %+v", m)

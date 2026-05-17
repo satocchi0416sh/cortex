@@ -39,8 +39,31 @@ func TestParseSession_Sample(t *testing.T) {
 	if s.Messages[1].Role != "assistant" || s.Messages[1].Text != "hi back" {
 		t.Errorf("msg[1] = %+v", s.Messages[1])
 	}
+	if s.Messages[0].UUID != "uuid-user-1" {
+		t.Errorf("msg[0].UUID = %q, want uuid-user-1", s.Messages[0].UUID)
+	}
+	if s.Messages[1].UUID != "uuid-asst-1" {
+		t.Errorf("msg[1].UUID = %q, want uuid-asst-1", s.Messages[1].UUID)
+	}
 	if strings.Contains(buf.String(), "unknown entry type") {
 		t.Errorf("system is a known skip type, should not warn: %s", buf.String())
+	}
+}
+
+func TestParseSession_Extended(t *testing.T) {
+	logger, _ := newCaptureLogger()
+	s, err := ParseSession("testdata/sample_extended.jsonl", logger)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(s.Messages) != 5 {
+		t.Fatalf("Messages len = %d, want 5", len(s.Messages))
+	}
+	wantUUIDs := []string{"uuid-1", "uuid-2", "uuid-3", "uuid-4", "uuid-5"}
+	for i, want := range wantUUIDs {
+		if s.Messages[i].UUID != want {
+			t.Errorf("msg[%d].UUID = %q, want %q", i, s.Messages[i].UUID, want)
+		}
 	}
 }
 
