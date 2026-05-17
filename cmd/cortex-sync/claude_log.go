@@ -29,7 +29,7 @@ func runClaudeLog(ctx context.Context, args []string) int {
 	fs.BoolVar(&dryRun, "dry-run", false, "parse and plan only, no Notion calls")
 	fs.BoolVar(&verbose, "verbose", false, "debug logging")
 	fs.StringVar(&configPath, "config", "", "path to yaml/json config file")
-	fs.StringVar(&stateFile, "state-file", "", "override state file path (unused in MVP, reserved)")
+	fs.StringVar(&stateFile, "state-file", "", "override claude-log state file path (default ~/.cortex/claudelog_state.json)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -81,15 +81,20 @@ func runClaudeLog(ctx context.Context, args []string) int {
 
 	var runner *claudelog.Runner
 	if dryRun {
-		runner = claudelog.NewRunner(nil, cfg.ClaudeLogDatabaseID, jsonlPath, logger, true)
+		runner = claudelog.NewRunner(nil, cfg.ClaudeLogDatabaseID, jsonlPath, nil, logger, true)
 	} else {
+		state, err := claudelog.LoadState(cfg.StateFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "claude-log: load state:", err)
+			return 1
+		}
 		client := notion.NewClient(notion.Options{
 			Token:      cfg.NotionToken,
 			DatabaseID: cfg.ClaudeLogDatabaseID,
 			RPS:        cfg.RPS,
 			Logger:     logger,
 		})
-		runner = claudelog.NewRunner(client, cfg.ClaudeLogDatabaseID, jsonlPath, logger, false)
+		runner = claudelog.NewRunner(client, cfg.ClaudeLogDatabaseID, jsonlPath, state, logger, false)
 	}
 
 	res, err := runner.Run(ctx)
@@ -102,8 +107,11 @@ func runClaudeLog(ctx context.Context, args []string) int {
 	case dryRun:
 		fmt.Printf("dry-run: would sync session %s (%d messages, %d blocks)\n",
 			sessionID, res.MessageCount, res.BlockCount)
+	case res.Updated:
+		fmt.Printf("appended: %d new messages to page %s (session %s, %d new blocks)\n",
+			res.MessageCount, res.PageID, sessionID, res.BlockCount)
 	case res.Skipped:
-		fmt.Printf("skipped: page already exists for session %s (page_id=%s)\n", sessionID, res.PageID)
+		fmt.Printf("skipped: page already up to date (session %s, page_id=%s)\n", sessionID, res.PageID)
 	case res.Created:
 		fmt.Printf("created: page %s for session %s (%d messages, %d blocks)\n",
 			res.PageID, sessionID, res.MessageCount, res.BlockCount)
