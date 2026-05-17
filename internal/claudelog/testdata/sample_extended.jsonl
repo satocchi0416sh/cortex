@@ -1,0 +1,6 @@
+{"type":"system","sessionId":"sess-ext","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:00.000Z"}
+{"type":"user","sessionId":"sess-ext","uuid":"uuid-1","message":{"role":"user","content":"msg one"}}
+{"type":"assistant","sessionId":"sess-ext","uuid":"uuid-2","message":{"role":"assistant","content":"msg two"}}
+{"type":"user","sessionId":"sess-ext","uuid":"uuid-3","message":{"role":"user","content":"msg three"}}
+{"type":"assistant","sessionId":"sess-ext","uuid":"uuid-4","message":{"role":"assistant","content":"msg four"}}
+{"type":"user","sessionId":"sess-ext","uuid":"uuid-5","message":{"role":"user","content":"msg five"}}

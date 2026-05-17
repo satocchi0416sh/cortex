@@ -12,10 +12,14 @@ import (
 
 // Message is a single conversational turn the renderer cares about. Role is
 // either "user" or "assistant"; other entry types are filtered out at parse
-// time.
+// time. UUID is Claude Code's per-entry identifier, used by the incremental
+// sync path to locate the last synced message; older JSONL files without uuid
+// fields parse to an empty string and the append path treats that as "cursor
+// unknown" which forces a full-sync error rather than silent divergence.
 type Message struct {
 	Role string
 	Text string
+	UUID string
 }
 
 // Session is the parsed JSONL: identifying metadata plus the ordered list of
@@ -100,7 +104,11 @@ func ParseSession(path string, logger *slog.Logger) (*Session, error) {
 			if text == "" {
 				continue
 			}
-			session.Messages = append(session.Messages, Message{Role: entry.Type, Text: text})
+			session.Messages = append(session.Messages, Message{
+				Role: entry.Type,
+				Text: text,
+				UUID: entry.UUID,
+			})
 		default:
 			if _, ok := knownSkipTypes[entry.Type]; ok {
 				continue
