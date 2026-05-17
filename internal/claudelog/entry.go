@@ -10,12 +10,17 @@ import (
 // timestamp / cwd / session metadata to extract. Anything we do not consume is
 // intentionally dropped via json.RawMessage on Message and absence elsewhere.
 type RawEntry struct {
-	Type        string          `json:"type"`
-	SessionID   string          `json:"sessionId"`
-	IsSidechain bool            `json:"isSidechain"`
-	Cwd         string          `json:"cwd"`
-	Timestamp   string          `json:"timestamp"`
-	Message     json.RawMessage `json:"message"`
+	Type        string `json:"type"`
+	SessionID   string `json:"sessionId"`
+	IsSidechain bool   `json:"isSidechain"`
+	Cwd         string `json:"cwd"`
+	Timestamp   string `json:"timestamp"`
+	// UUID is Claude Code's per-entry identifier. Used as the incremental
+	// append cursor in internal/claudelog/sync.go; absent on older JSONL
+	// schemas, in which case the appendPath treats the cursor as unknown
+	// and aborts with ErrCursorStale rather than silently re-uploading.
+	UUID    string          `json:"uuid"`
+	Message json.RawMessage `json:"message"`
 }
 
 // extractText pulls the human-readable text out of an entry's "message" field.
