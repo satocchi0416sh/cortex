@@ -10,6 +10,10 @@ func TestBuildProperties_Standard(t *testing.T) {
 		SessionID: "abcdef0123-456",
 		Cwd:       "/Users/me/Projects/dotgo",
 		StartedAt: time.Date(2026, 5, 17, 9, 0, 0, 0, time.UTC),
+		Messages: []Message{
+			{Role: "user", Text: "a", UUID: "u-1"},
+			{Role: "assistant", Text: "b", UUID: "u-2"},
+		},
 	}
 	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.FixedZone("JST", 9*3600))
 	p := BuildProperties(s, "/path/to/abcdef01.jsonl", now)
@@ -27,6 +31,23 @@ func TestBuildProperties_Standard(t *testing.T) {
 	}
 	if p.LastSynced.Location() != time.UTC {
 		t.Errorf("LastSynced not UTC: %v", p.LastSynced)
+	}
+	if p.LastUUID != "u-2" {
+		t.Errorf("LastUUID = %q, want u-2 (last message's UUID)", p.LastUUID)
+	}
+	if p.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2", p.MessageCount)
+	}
+}
+
+func TestBuildProperties_EmptyMessages(t *testing.T) {
+	s := &Session{SessionID: "sid", Cwd: "/proj/x"}
+	p := BuildProperties(s, "src", time.Now())
+	if p.LastUUID != "" {
+		t.Errorf("LastUUID should be empty for sessions with no messages, got %q", p.LastUUID)
+	}
+	if p.MessageCount != 0 {
+		t.Errorf("MessageCount = %d, want 0", p.MessageCount)
 	}
 }
 
