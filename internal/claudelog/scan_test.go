@@ -83,3 +83,76 @@ func TestLocateJSONL_MultipleMatchesPicksNewest(t *testing.T) {
 		t.Errorf("got %q, want newer %q", got, pb)
 	}
 }
+
+func TestLocateAllJSONLs_RootEmpty(t *testing.T) {
+	_, err := LocateAllJSONLs("")
+	if err == nil || !strings.Contains(err.Error(), "claude projects root") {
+		t.Fatalf("expected root-empty error, got %v", err)
+	}
+}
+
+func TestLocateAllJSONLs_RootMissing(t *testing.T) {
+	got, err := LocateAllJSONLs(filepath.Join(t.TempDir(), "no-such-dir"))
+	if err != nil {
+		t.Fatalf("missing root should warn+return nil, got err: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty slice for missing root, got %v", got)
+	}
+}
+
+func TestLocateAllJSONLs_Empty(t *testing.T) {
+	root := t.TempDir()
+	got, err := LocateAllJSONLs(root)
+	if err != nil {
+		t.Fatalf("locate: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty slice, got %v", got)
+	}
+}
+
+func TestLocateAllJSONLs_Multiple(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "proj-a")
+	deep := filepath.Join(root, "proj-b", "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := filepath.Join(sub, "sess-a.jsonl")
+	b := filepath.Join(deep, "sess-b.jsonl")
+	ignore := filepath.Join(sub, "notes.txt")
+	for _, p := range []string{a, b, ignore} {
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := LocateAllJSONLs(root)
+	if err != nil {
+		t.Fatalf("locate: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 jsonl, got %d (%v)", len(got), got)
+	}
+	// sort.Strings → "proj-a/sess-a.jsonl" < "proj-b/nested/sess-b.jsonl"
+	if got[0] != a || got[1] != b {
+		t.Errorf("got %v; want [%s %s]", got, a, b)
+	}
+}
+
+func TestSessionIDFromPath(t *testing.T) {
+	cases := map[string]string{
+		"/tmp/proj/abc.jsonl":              "abc",
+		"/tmp/proj/sub/uuid-1234.jsonl":    "uuid-1234",
+		"abc.jsonl":                        "abc",
+		"/tmp/proj/abc.JSONL":              "abc",
+	}
+	for in, want := range cases {
+		if got := SessionIDFromPath(in); got != want {
+			t.Errorf("SessionIDFromPath(%q) = %q; want %q", in, got, want)
+		}
+	}
+}
