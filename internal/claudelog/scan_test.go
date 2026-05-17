@@ -143,6 +143,45 @@ func TestLocateAllJSONLs_Multiple(t *testing.T) {
 	}
 }
 
+// TestLocateAllJSONLs_SkipsSubagents (Issue #22) guards against scanning
+// "<project>/<session>/subagents/agent-*.jsonl" files. Their entries reuse
+// the parent session's sessionId, so syncing them collides with the parent
+// page and produces cursor-stale errors.
+func TestLocateAllJSONLs_SkipsSubagents(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj-a", "session-uuid")
+	subagents := filepath.Join(proj, "subagents")
+	if err := os.MkdirAll(subagents, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Parent session jsonl: included
+	parent := filepath.Join(proj, "session-uuid.jsonl")
+	// Subagent jsonls: must be excluded
+	agent1 := filepath.Join(subagents, "agent-aaaa.jsonl")
+	agent2 := filepath.Join(subagents, "agent-bbbb.jsonl")
+	for _, p := range []string{parent, agent1, agent2} {
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := LocateAllJSONLs(root)
+	if err != nil {
+		t.Fatalf("locate: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected only parent jsonl, got %d (%v)", len(got), got)
+	}
+	if got[0] != parent {
+		t.Errorf("got %q, want parent %q", got[0], parent)
+	}
+	for _, p := range got {
+		if strings.Contains(p, string(filepath.Separator)+"subagents"+string(filepath.Separator)) {
+			t.Errorf("subagent path leaked into result: %q", p)
+		}
+	}
+}
+
 func TestSessionIDFromPath(t *testing.T) {
 	cases := map[string]string{
 		"/tmp/proj/abc.jsonl":              "abc",
