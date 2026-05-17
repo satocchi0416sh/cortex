@@ -49,6 +49,17 @@ var RequiredProperties = []PropDef{
 	{Name: "Last Synced", Type: "date"},
 }
 
+// ClaudeLogRequiredProperties is the canonical schema the claude-log
+// subcommand expects on the dedicated Notion DB.
+var ClaudeLogRequiredProperties = []PropDef{
+	{Name: "Name", Type: "title"},
+	{Name: "Session ID", Type: "rich_text"},
+	{Name: "Project", Type: "rich_text"},
+	{Name: "Started At", Type: "date"},
+	{Name: "Source Path", Type: "rich_text"},
+	{Name: "Last Synced", Type: "date"},
+}
+
 // DatabaseInfo is the subset of GET /v1/databases/{id} we care about.
 // Post 2025-09-03 the properties live on a data_source rather than the
 // database itself; schemaPath captures the endpoint to PATCH for schema edits.
@@ -106,11 +117,18 @@ func (c *Client) GetDatabase(ctx context.Context, dbID string) (*DatabaseInfo, e
 // VerifyDatabaseSchema returns issues found relative to RequiredProperties.
 // A nil/empty issue slice means the schema is compatible.
 func (c *Client) VerifyDatabaseSchema(ctx context.Context, dbID string) ([]Issue, error) {
+	return c.VerifyDatabaseSchemaWith(ctx, dbID, RequiredProperties)
+}
+
+// VerifyDatabaseSchemaWith returns issues found relative to the supplied
+// required-property list. Use this when a subcommand (e.g. claude-log) needs a
+// different schema than the default markdown sync.
+func (c *Client) VerifyDatabaseSchemaWith(ctx context.Context, dbID string, required []PropDef) ([]Issue, error) {
 	info, err := c.GetDatabase(ctx, dbID)
 	if err != nil {
 		return nil, err
 	}
-	return diffSchema(info, RequiredProperties), nil
+	return diffSchema(info, required), nil
 }
 
 func diffSchema(info *DatabaseInfo, required []PropDef) []Issue {

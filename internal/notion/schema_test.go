@@ -265,3 +265,83 @@ func TestEnsureProperties_NoOpForEmpty(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 }
+
+func claudeLogDBPayload(overrides map[string]map[string]any) map[string]any {
+	props := map[string]map[string]any{
+		"Name":        {"id": "1", "name": "Name", "type": "title"},
+		"Session ID":  {"id": "2", "name": "Session ID", "type": "rich_text"},
+		"Project":     {"id": "3", "name": "Project", "type": "rich_text"},
+		"Started At":  {"id": "4", "name": "Started At", "type": "date"},
+		"Source Path": {"id": "5", "name": "Source Path", "type": "rich_text"},
+		"Last Synced": {"id": "6", "name": "Last Synced", "type": "date"},
+	}
+	for name, replacement := range overrides {
+		if replacement == nil {
+			delete(props, name)
+			continue
+		}
+		props[name] = replacement
+	}
+	out := map[string]any{"id": "db123", "properties": map[string]any{}}
+	for name, p := range props {
+		out["properties"].(map[string]any)[name] = p
+	}
+	return out
+}
+
+func TestDiffSchema_ClaudeLogAllPresent(t *testing.T) {
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(claudeLogDBPayload(nil))
+	})
+	issues, err := c.VerifyDatabaseSchemaWith(context.Background(), "db123", ClaudeLogRequiredProperties)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got %v", issues)
+	}
+}
+
+func TestDiffSchema_ClaudeLogMissing(t *testing.T) {
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(claudeLogDBPayload(map[string]map[string]any{
+			"Session ID":  nil,
+			"Source Path": nil,
+		}))
+	})
+	issues, err := c.VerifyDatabaseSchemaWith(context.Background(), "db123", ClaudeLogRequiredProperties)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issues, got %d: %v", len(issues), issues)
+	}
+	missing := MissingFromIssues(issues)
+	if len(missing) != 2 {
+		t.Fatalf("expected 2 missing, got %d", len(missing))
+	}
+	wantNames := map[string]string{"Session ID": "rich_text", "Source Path": "rich_text"}
+	for _, m := range missing {
+		if wantNames[m.Name] != m.Type {
+			t.Errorf("unexpected missing property: %+v", m)
+		}
+	}
+}
+
+func TestDiffSchema_ClaudeLogTypeMismatch(t *testing.T) {
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(claudeLogDBPayload(map[string]map[string]any{
+			"Session ID": {"id": "2", "name": "Session ID", "type": "date"},
+		}))
+	})
+	issues, err := c.VerifyDatabaseSchemaWith(context.Background(), "db123", ClaudeLogRequiredProperties)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if len(issues) != 1 || issues[0].Kind != IssueTypeMismatch {
+		t.Fatalf("expected 1 type_mismatch, got %v", issues)
+	}
+	if issues[0].Property != "Session ID" || issues[0].Got != "date" || issues[0].Want != "rich_text" {
+		t.Errorf("unexpected mismatch: %+v", issues[0])
+	}
+}
