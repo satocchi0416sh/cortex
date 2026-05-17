@@ -94,6 +94,18 @@ func (r *Runner) Run(ctx context.Context) (*RunResult, error) {
 		return nil, fmt.Errorf("parse %s: %w", r.jsonlPath, err)
 	}
 
+	// Issue #22: skip sessions that produced no user/assistant messages
+	// (empty JSONL, parse failure on every line, or all entries filtered
+	// because they were sidechain). Creating an empty page just to fail on
+	// the next cycle's cursor lookup wastes Notion API calls and floods the
+	// launchd log with ErrCursorStale. Returning an empty RunResult here
+	// makes the --all loop count it as a clean no-op (not "failed").
+	if len(session.Messages) == 0 {
+		r.logger.Info("claude-log skipping empty session",
+			"session_id", session.SessionID, "path", r.jsonlPath)
+		return &RunResult{}, nil
+	}
+
 	props := BuildProperties(session, r.jsonlPath, r.now())
 
 	if r.dryRun {

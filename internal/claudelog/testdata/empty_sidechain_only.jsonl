@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"parent-sess-9999","isSidechain":true,"cwd":"/tmp/parent","timestamp":"2026-05-18T00:00:00Z","uuid":"uuid-side-1","message":{"role":"user","content":"hidden"}}
+{"type":"assistant","sessionId":"parent-sess-9999","isSidechain":true,"timestamp":"2026-05-18T00:00:01Z","uuid":"uuid-side-2","message":{"role":"assistant","content":"hidden"}}

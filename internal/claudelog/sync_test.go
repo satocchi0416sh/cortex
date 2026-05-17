@@ -125,6 +125,43 @@ func TestRunner_CreatesPageWhenAbsent(t *testing.T) {
 	}
 }
 
+// TestRunner_EmptySessionSkippedNoApiCall (Issue #22) guards the subagent
+// scenario: a JSONL whose entries are all isSidechain=true (or empty)
+// produces Session.Messages=0. Without the early-return, the runner would
+// call CreatePage and seed an empty page that fails on every subsequent
+// cycle with cursor-stale. The empty case must short-circuit before any
+// gateway method is invoked.
+func TestRunner_EmptySessionSkippedNoApiCall(t *testing.T) {
+	g := &fakeGateway{createID: "should-not-be-called"}
+	state := newTempState(t)
+	r := NewRunner(g, "claudelog-db", "testdata/empty_sidechain_only.jsonl", state, newSilentLogger(), false)
+	res, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run on empty session must not error: %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected RunResult, got nil")
+	}
+	if res.Created || res.Updated || res.Skipped {
+		t.Errorf("expected all flags false on empty skip, got %+v", res)
+	}
+	if g.verifyCalls != 0 {
+		t.Errorf("VerifyDatabaseSchemaWith calls = %d, want 0 (must not hit network)", g.verifyCalls)
+	}
+	if g.findCalls != 0 {
+		t.Errorf("FindPageBySessionID calls = %d, want 0", g.findCalls)
+	}
+	if g.createCalls != 0 {
+		t.Errorf("CreatePageClaudeLog calls = %d, want 0", g.createCalls)
+	}
+	if g.appendCalls != 0 {
+		t.Errorf("AppendNewChildren calls = %d, want 0", g.appendCalls)
+	}
+	if g.updateCursorCalls != 0 {
+		t.Errorf("UpdateClaudeLogCursorProperties calls = %d, want 0", g.updateCursorCalls)
+	}
+}
+
 func TestRunner_SeedsCursorOnInitialCreate(t *testing.T) {
 	g := &fakeGateway{createID: "page-created"}
 	state := newTempState(t)
