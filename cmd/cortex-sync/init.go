@@ -30,8 +30,8 @@ func runInit(ctx context.Context, args []string) int {
 	fmt.Println("cortex-sync setup")
 	fmt.Println()
 
-	// [1/6] token
-	fmt.Println("[1/6] Notion integration token を入力してください")
+	// [1/7] token
+	fmt.Println("[1/7] Notion integration token を入力してください")
 	fmt.Println("      → https://www.notion.so/profile/integrations で integration を作成し")
 	fmt.Println("        \"Internal Integration Secret\" をコピーしてください")
 	var token string
@@ -60,8 +60,8 @@ func runInit(ctx context.Context, args []string) int {
 	fmt.Println("  ✓ keychain 保存 (service=" + keychainService + ")")
 	fmt.Println()
 
-	// [2/6] DB URL or ID
-	fmt.Println("[2/6] 同期先 Notion DB の URL または ID を入力してください")
+	// [2/7] DB URL or ID
+	fmt.Println("[2/7] 同期先 Notion DB の URL または ID を入力してください")
 	fmt.Println("      DB を開いて URL をコピーすればOK（v=... の前部分から DB ID 抽出）")
 	fmt.Println("      事前に DB の \"•••\" → Connections で integration を Add してください")
 	var dbInput string
@@ -88,8 +88,8 @@ func runInit(ctx context.Context, args []string) int {
 	fmt.Println("  ✓ DB ID =", dbID)
 	fmt.Println()
 
-	// [3/6] schema verify + auto-add missing
-	fmt.Println("[3/6] DB スキーマを検証中...")
+	// [3/7] schema verify + auto-add missing
+	fmt.Println("[3/7] DB スキーマを検証中...")
 	client := newNotionClient(token, dbID, 2.5, slog.LevelWarn)
 	info, err := client.GetDatabase(ctx, dbID)
 	if err != nil {
@@ -129,8 +129,8 @@ func runInit(ctx context.Context, args []string) int {
 	}
 	fmt.Println()
 
-	// [4/6] scan root
-	fmt.Println("[4/6] スキャンルートを設定")
+	// [4/7] scan root
+	fmt.Println("[4/7] スキャンルートを設定")
 	home, _ := os.UserHomeDir()
 	defaultRoot := config.DefaultScanRoot()
 	scanRoot := defaultRoot
@@ -153,8 +153,8 @@ func runInit(ctx context.Context, args []string) int {
 	fmt.Println("  ✓ scan root =", scanRoot)
 	fmt.Println()
 
-	// [5/6] plist install
-	fmt.Println("[5/6] launchd plist を配置")
+	// [5/7] plist install
+	fmt.Println("[5/7] launchd plist を配置")
 	paths, err := launchd.DefaultPaths()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "  ✗", err)
@@ -179,8 +179,8 @@ func runInit(ctx context.Context, args []string) int {
 	fmt.Printf("  ✓ launchctl bootstrap (%d 秒間隔で起動)\n", *intervalSec)
 	fmt.Println()
 
-	// [6/6] dry-run smoke test
-	fmt.Println("[6/6] 初回同期確認 (dry-run)")
+	// [6/7] dry-run smoke test
+	fmt.Println("[6/7] 初回同期確認 (dry-run)")
 	cfg := &config.Config{
 		NotionToken:      token,
 		NotionDatabaseID: dbID,
@@ -199,10 +199,149 @@ func runInit(ctx context.Context, args []string) int {
 		res.Total, res.Created, res.Updated, res.Skipped)
 	fmt.Println()
 
+	// [7/7] claude-log opt-in setup. Skipped by default so existing users
+	// keep the byte-identical install. Yes branches into a dedicated DB ID
+	// prompt + schema verify + claude-log plist + launchd registration.
+	fmt.Println("[7/7] Claude Code の会話履歴も Notion 同期しますか?")
+	wantClaudeLog := false
+	claudeConfirm := huh.NewConfirm().
+		Title("セットアップ claude-log job?").
+		Description("別の Notion DB に Claude Code の JSONL を 15 分おきに同期します。Skip 可。").
+		Affirmative("Yes").
+		Negative("No (skip)").
+		Value(&wantClaudeLog)
+	if err := claudeConfirm.Run(); err != nil {
+		if !errors.Is(err, huh.ErrUserAborted) {
+			fmt.Fprintln(os.Stderr, "  ! claude-log prompt:", err)
+		}
+		wantClaudeLog = false
+	}
+	if wantClaudeLog {
+		if rc := setupClaudeLog(ctx, paths, token, dbID, *intervalSec); rc != 0 {
+			return rc
+		}
+	} else {
+		fmt.Println("  • claude-log セットアップ skip")
+	}
+	fmt.Println()
+
 	fmt.Println("セットアップ完了。")
 	fmt.Println("  status:    cortex-sync doctor")
 	fmt.Println("  remove:    cortex-sync uninstall")
 	fmt.Println("  ログ:      ", paths.ErrLogPath)
+	if wantClaudeLog {
+		fmt.Println("  claude-log ログ: ", paths.ClaudeLogErrLogPath)
+	}
+	return 0
+}
+
+// setupClaudeLog handles the claude-log branch of init: prompt for the
+// dedicated DB ID, prompt for the optional Claude projects root, verify the
+// DB schema (warn only — DB schema auto-create is intentionally out of scope
+// for claude-log because it requires Last UUID / Message Count properties
+// the user should review before adding), and bootstrap the claude-log
+// launchd job. Returns 0 on success or a non-zero CLI exit code on failure.
+// markdownDBID is passed in so we can warn when the two DBs collide.
+func setupClaudeLog(ctx context.Context, paths launchd.Paths, token, markdownDBID string, intervalSec int) int {
+	fmt.Println("  Claude Code 用 Notion DB の URL または ID を入力してください")
+	fmt.Println("  事前に DB に integration を Add してください (markdown 同期と同じ integration で OK)")
+	var claudeInput string
+	claudeField := huh.NewInput().
+		Title("claude-log DB URL or ID").
+		Value(&claudeInput).
+		Validate(func(s string) error {
+			if strings.TrimSpace(s) == "" {
+				return errors.New("required")
+			}
+			if _, err := extractDatabaseID(s); err != nil {
+				return err
+			}
+			return nil
+		})
+	if err := claudeField.Run(); err != nil {
+		return huhExitCode(err)
+	}
+	claudeDBID, err := extractDatabaseID(claudeInput)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "  ✗", err)
+		return 1
+	}
+	if claudeDBID == markdownDBID {
+		fmt.Fprintln(os.Stderr, "  ! claude-log DB ID が markdown sync DB ID と一致しています。意図的なら続行可。")
+	}
+	fmt.Println("  ✓ claude-log DB ID =", claudeDBID)
+
+	// Claude projects root (optional).
+	defaultClaudeRoot := config.DefaultClaudeProjectsRoot()
+	claudeRoot := defaultClaudeRoot
+	rootField := huh.NewInput().
+		Title("Claude projects root").
+		Description("Enter で既定 (~/.claude/projects)").
+		Placeholder(defaultClaudeRoot).
+		Value(&claudeRoot)
+	if err := rootField.Run(); err != nil {
+		return huhExitCode(err)
+	}
+	claudeRoot = strings.TrimSpace(claudeRoot)
+	if claudeRoot == "" {
+		claudeRoot = defaultClaudeRoot
+	}
+	claudeRoot = expandHome(claudeRoot)
+	if _, err := os.Stat(claudeRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "  ! claude projects root が存在しません: %s (作成しません)\n", claudeRoot)
+	}
+	fmt.Println("  ✓ claude projects root =", claudeRoot)
+
+	// Schema verify (warn-only). DB schema auto-create is intentionally
+	// out of scope per Issue #6 hard constraints.
+	fmt.Println("  claude-log DB schema を検証中...")
+	client := newNotionClient(token, claudeDBID, 2.5, slog.LevelWarn)
+	if _, err := client.GetDatabase(ctx, claudeDBID); err != nil {
+		fmt.Fprintln(os.Stderr, "  ✗ DB 取得失敗:", err)
+		fmt.Fprintln(os.Stderr, "    integration を DB に Connections で Add したか確認してください")
+		return 1
+	}
+	issues, err := client.VerifyDatabaseSchemaWith(ctx, claudeDBID, notion.ClaudeLogRequiredProperties)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "  ✗ verify 失敗:", err)
+		return 1
+	}
+	missing := notion.MissingFromIssues(issues)
+	if len(missing) > 0 {
+		fmt.Fprintln(os.Stderr, "  ! claude-log DB schema に不足プロパティがあります:")
+		for _, m := range missing {
+			fmt.Fprintf(os.Stderr, "      - %s (%s)\n", m.Name, m.Type)
+		}
+		fmt.Fprintln(os.Stderr, "    Notion UI で追加してから launchd 起動時の同期が成功します")
+	} else {
+		fmt.Printf("  ✓ claude-log DB schema (%d/%d properties present)\n",
+			len(notion.ClaudeLogRequiredProperties), len(notion.ClaudeLogRequiredProperties))
+	}
+	for _, iss := range issues {
+		if iss.Kind == notion.IssueTypeMismatch {
+			fmt.Fprintf(os.Stderr, "  ! 型ミスマッチ: %s (現状 %s, 期待 %s) — 手動修正してください\n",
+				iss.Property, iss.Got, iss.Want)
+		}
+	}
+
+	// Plist install.
+	binaryPath, err := resolveBinaryPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "  ✗ binary パス取得失敗:", err)
+		return 1
+	}
+	plistData, wrapperData := buildClaudeLogLaunchdData(paths, binaryPath, claudeDBID, claudeRoot, intervalSec)
+	if err := launchd.WriteClaudeLogFiles(paths, plistData, wrapperData); err != nil {
+		fmt.Fprintln(os.Stderr, "  ✗ claude-log plist/wrapper 配置失敗:", err)
+		return 1
+	}
+	fmt.Println("  ✓", paths.ClaudeLogPlistPath)
+	fmt.Println("  ✓ ラッパー", paths.ClaudeLogWrapperPath)
+	if err := launchd.BootstrapClaudeLog(ctx, paths); err != nil {
+		fmt.Fprintln(os.Stderr, "  ✗ claude-log launchctl bootstrap 失敗:", err)
+		return 1
+	}
+	fmt.Printf("  ✓ launchctl bootstrap %s (%d 秒間隔で起動)\n", launchd.ClaudeLogLabel, intervalSec)
 	return 0
 }
 

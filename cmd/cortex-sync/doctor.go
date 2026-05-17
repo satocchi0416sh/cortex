@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/satocchi0416sh/cortex/internal/claudelog"
 	"github.com/satocchi0416sh/cortex/internal/config"
 	"github.com/satocchi0416sh/cortex/internal/launchd"
 	"github.com/satocchi0416sh/cortex/internal/notion"
@@ -103,20 +104,20 @@ func runDoctor(ctx context.Context, args []string) int {
 		check(true, "plist installed at "+paths.PlistPath, "")
 	}
 
-	// 5. launchd job
+	// 5. launchd job (markdown)
 	status, _ := launchd.Print(ctx)
 	if status.Loaded {
 		extra := ""
 		if status.LastExitCode != "" {
 			extra = ", last exit code = " + status.LastExitCode
 		}
-		check(true, "launchd job active"+extra, "")
+		check(true, "launchd job "+launchd.MarkdownLabel+" active"+extra, "")
 	} else {
 		hint := "run `cortex-sync install`"
 		if status.RawError != "" {
 			hint += " (" + status.RawError + ")"
 		}
-		check(false, "launchd job not loaded", hint)
+		check(false, "launchd job "+launchd.MarkdownLabel+" not loaded", hint)
 	}
 
 	// 6. scan root + .md count
@@ -129,6 +130,97 @@ func runDoctor(ctx context.Context, args []string) int {
 	} else {
 		files, _ := scanner.Scan(scanRoot, "*/.serena/memories/*.md")
 		check(true, fmt.Sprintf("scan root %s exists (%d .md files)", scanRoot, len(files)), "")
+	}
+
+	// 7. claude-log wrapper, DB schema, plist, launchd job, projects root.
+	// All of these are opt-in: if the user never set up the claude-log job,
+	// these checks report status without counting as failures.
+	fmt.Println()
+	fmt.Println("--- claude-log ---")
+	claudeWrapper, claudeWrapperErr := readExistingClaudeLogWrapper(paths.ClaudeLogWrapperPath)
+	claudeDBID := claudeWrapper.DatabaseID
+	if claudeDBID == "" {
+		claudeDBID = os.Getenv("CORTEX_CLAUDELOG_DATABASE_ID")
+	}
+	switch {
+	case claudeWrapperErr == nil:
+		check(true, "claude-log wrapper "+paths.ClaudeLogWrapperPath+" present", "")
+	case claudeDBID != "":
+		check(false, "claude-log wrapper "+paths.ClaudeLogWrapperPath+" missing", "run `cortex-sync install`")
+	default:
+		// No wrapper, no env-supplied DB ID, no configuration: report as
+		// "not configured" rather than as a failure.
+		fmt.Println("• claude-log: not configured (skip)")
+	}
+
+	if claudeDBID != "" {
+		if token != "" {
+			client := newNotionClient(token, claudeDBID, 5, slog.LevelError)
+			info, err := client.GetDatabase(ctx, claudeDBID)
+			if err != nil {
+				check(false, "claude-log Notion API / DB unreachable", err.Error())
+			} else {
+				check(true, fmt.Sprintf("claude-log DB %s accessible", short(info.ID)), "")
+				issues, _ := client.VerifyDatabaseSchemaWith(ctx, claudeDBID, notion.ClaudeLogRequiredProperties)
+				if len(issues) == 0 {
+					check(true, fmt.Sprintf("claude-log DB schema (%d/%d properties present)",
+						len(notion.ClaudeLogRequiredProperties), len(notion.ClaudeLogRequiredProperties)), "")
+				} else {
+					missing := notion.MissingFromIssues(issues)
+					if len(missing) > 0 {
+						names := make([]string, 0, len(missing))
+						for _, m := range missing {
+							names = append(names, m.Name)
+						}
+						check(false, fmt.Sprintf("claude-log DB schema: missing %v", names),
+							"add properties via Notion UI; see examples/")
+					}
+					for _, iss := range issues {
+						if iss.Kind == notion.IssueTypeMismatch {
+							check(false, fmt.Sprintf("claude-log DB schema: %s type=%s want=%s",
+								iss.Property, iss.Got, iss.Want), "manually fix in Notion UI")
+						}
+					}
+				}
+			}
+		}
+
+		if _, err := os.Stat(paths.ClaudeLogPlistPath); err != nil {
+			check(false, "claude-log plist missing at "+paths.ClaudeLogPlistPath, "run `cortex-sync install`")
+		} else {
+			check(true, "claude-log plist installed at "+paths.ClaudeLogPlistPath, "")
+		}
+
+		claudeStatus, _ := launchd.PrintClaudeLog(ctx)
+		if claudeStatus.Loaded {
+			extra := ""
+			if claudeStatus.LastExitCode != "" {
+				extra = ", last exit code = " + claudeStatus.LastExitCode
+			}
+			check(true, "launchd job "+launchd.ClaudeLogLabel+" active"+extra, "")
+		} else {
+			hint := "run `cortex-sync install`"
+			if claudeStatus.RawError != "" {
+				hint += " (" + claudeStatus.RawError + ")"
+			}
+			check(false, "launchd job "+launchd.ClaudeLogLabel+" not loaded", hint)
+		}
+
+		claudeRoot := claudeWrapper.ClaudeProjectsRoot
+		if claudeRoot == "" {
+			claudeRoot = os.Getenv("CORTEX_CLAUDE_PROJECTS_ROOT")
+		}
+		if claudeRoot == "" {
+			claudeRoot = config.DefaultClaudeProjectsRoot()
+		}
+		if _, err := os.Stat(claudeRoot); err != nil {
+			// Not a hard failure: first run after install may legitimately have
+			// no projects yet.
+			fmt.Println("• claude projects root", claudeRoot, "missing (no sessions yet)")
+		} else {
+			files, _ := claudelog.LocateAllJSONLs(claudeRoot)
+			check(true, fmt.Sprintf("claude projects root %s exists (%d .jsonl files)", claudeRoot, len(files)), "")
+		}
 	}
 
 	fmt.Println()
