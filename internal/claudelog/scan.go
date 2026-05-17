@@ -80,6 +80,13 @@ func LocateJSONL(root, sessionID string) (string, error) {
 // empty slice is returned (so launchd can keep ticking without failing during
 // the user's first Claude Code session). An empty root argument is a
 // configuration error and surfaces as such.
+//
+// Subagent JSONL files (Issue #22) are excluded. Claude Code stores Task-tool
+// subagent transcripts under "<project>/<session-id>/subagents/agent-*.jsonl"
+// but their entries all carry isSidechain=true AND reuse the parent session's
+// sessionId, so syncing them collides with the parent page and produces
+// nothing but cursor-stale errors. The filter skips any directory named
+// "subagents" via SkipDir to avoid walking into the entire subtree.
 func LocateAllJSONLs(root string) ([]string, error) {
 	if root == "" {
 		return nil, errors.New("claude projects root not configured")
@@ -97,6 +104,10 @@ func LocateAllJSONLs(root string) ([]string, error) {
 			return err
 		}
 		if d.IsDir() {
+			// Issue #22: prune entire subagents/ subtree.
+			if d.Name() == "subagents" {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if !strings.EqualFold(filepath.Ext(d.Name()), ".jsonl") {
