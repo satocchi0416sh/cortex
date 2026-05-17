@@ -1,0 +1,6 @@
+{"type":"system","sessionId":"sess-tool","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:00.000Z"}
+{"type":"user","sessionId":"sess-tool","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:01.000Z","uuid":"uuid-u1","message":{"role":"user","content":"please list files"}}
+{"type":"assistant","sessionId":"sess-tool","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:02.000Z","uuid":"uuid-a1","message":{"role":"assistant","content":[{"type":"text","text":"sure, looking now"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls -la"}},{"type":"tool_use","id":"toolu_2","name":"Read","input":{"path":"/tmp/x"}}]}}
+{"type":"user","sessionId":"sess-tool","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:03.000Z","uuid":"uuid-u2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"total 0\ndrwxr-xr-x"}]},{"type":"tool_result","tool_use_id":"toolu_2","content":"file contents here"}]}}
+{"type":"assistant","sessionId":"sess-tool","cwd":"/home/me/proj","timestamp":"2026-05-17T09:00:04.000Z","uuid":"uuid-a2","message":{"role":"assistant","content":"done"}}
+{"type":"ai-title","sessionId":"sess-tool","aiTitle":"List project files via Bash + Read"}
