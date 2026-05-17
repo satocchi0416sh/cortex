@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/satocchi0416sh/cortex/internal/markdown"
 	"github.com/satocchi0416sh/cortex/internal/notion"
 )
 
@@ -98,8 +97,7 @@ func (r *Runner) Run(ctx context.Context) (*RunResult, error) {
 	props := BuildProperties(session, r.jsonlPath, r.now())
 
 	if r.dryRun {
-		md := RenderMarkdown(session)
-		blocks := markdown.Convert(md)
+		blocks := RenderBlocks(session)
 		r.logger.Info("claude-log dry-run plan",
 			"session_id", session.SessionID,
 			"project", session.Cwd,
@@ -139,8 +137,7 @@ func (r *Runner) Run(ctx context.Context) (*RunResult, error) {
 // rendered transcript and seed the cursor properties / state file from the
 // final message.
 func (r *Runner) createPath(ctx context.Context, session *Session, props notion.ClaudeLogProperties) (*RunResult, error) {
-	md := RenderMarkdown(session)
-	blocks := markdown.Convert(md)
+	blocks := RenderBlocks(session)
 	pageID, err := r.gateway.CreatePageClaudeLog(ctx, r.dbID, props, blocks)
 	if err != nil {
 		return nil, fmt.Errorf("create page: %w", err)
@@ -190,10 +187,10 @@ func (r *Runner) appendPath(ctx context.Context, session *Session, props notion.
 		SessionID: session.SessionID,
 		Cwd:       session.Cwd,
 		StartedAt: session.StartedAt,
+		AITitle:   session.AITitle,
 		Messages:  newMessages,
 	}
-	md := RenderMarkdown(subSession)
-	blocks := markdown.Convert(md)
+	blocks := RenderBlocks(subSession)
 	syncedAt := r.now().UTC()
 
 	if len(blocks) == 0 {
