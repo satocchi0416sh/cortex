@@ -116,6 +116,15 @@ func TestFindPageBySessionID_emptyResult(t *testing.T) {
 func TestCreatePageClaudeLog_usesArgDBID(t *testing.T) {
 	var captured map[string]any
 	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/databases/claudelog-db") {
+			// Legacy-style DB (properties on the DB itself) → dbParent returns
+			// {"database_id": ...} and the assertion below stays unchanged.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         "claudelog-db",
+				"properties": map[string]any{"Name": map[string]any{"id": "t", "name": "Name", "type": "title"}},
+			})
+			return
+		}
 		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/pages") {
 			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
 		}
@@ -142,6 +151,124 @@ func TestCreatePageClaudeLog_usesArgDBID(t *testing.T) {
 	}
 	if parent["database_id"] != "claudelog-db" {
 		t.Errorf("parent.database_id = %v, want claudelog-db (must use arg, not client default db123)", parent["database_id"])
+	}
+}
+
+// TestCreatePageClaudeLog_DataSourceParent (Issue #8): when the target DB is a
+// post-2025-09-03 multi-data_source database, the page POST must use
+// parent.data_source_id (legacy database_id returns 400 invalid_request_url
+// from Notion).
+func TestCreatePageClaudeLog_DataSourceParent(t *testing.T) {
+	var captured map[string]any
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/databases/new-style-db") {
+			// New-style DB: properties live on a data_source, not on the DB.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":           "new-style-db",
+				"properties":   map[string]any{},
+				"data_sources": []map[string]any{{"id": "ds-7", "name": "primary"}},
+			})
+			return
+		}
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/data_sources/ds-7") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"properties": map[string]any{"Name": map[string]any{"id": "t", "name": "Name", "type": "title"}},
+			})
+			return
+		}
+		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/pages") {
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "page-ds"})
+	})
+	if _, err := c.CreatePageClaudeLog(context.Background(), "new-style-db", ClaudeLogProperties{Title: "t"}, nil); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	parent, ok := captured["parent"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing parent: %v", captured)
+	}
+	if got := parent["data_source_id"]; got != "ds-7" {
+		t.Errorf("parent.data_source_id = %v, want ds-7 (multi data_source DB must not use database_id)", got)
+	}
+	if _, present := parent["database_id"]; present {
+		t.Errorf("parent.database_id must not be present alongside data_source_id: %v", parent)
+	}
+}
+
+// TestCreatePage_DataSourceParent (Issue #8, markdown path): same fix must
+// apply to the existing CreatePage entry used by markdown sync; otherwise a
+// user pointing the markdown DB at a new-style Notion DB would silently break.
+func TestCreatePage_DataSourceParent(t *testing.T) {
+	var captured map[string]any
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/databases/db123") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":           "db123",
+				"properties":   map[string]any{},
+				"data_sources": []map[string]any{{"id": "ds-md", "name": "primary"}},
+			})
+			return
+		}
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/data_sources/ds-md") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"properties": map[string]any{"Name": map[string]any{"id": "t", "name": "Name", "type": "title"}},
+			})
+			return
+		}
+		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/pages") {
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "page-md"})
+	})
+	if _, err := c.CreatePage(context.Background(), Properties{Title: "t"}, nil); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	parent, ok := captured["parent"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing parent: %v", captured)
+	}
+	if parent["data_source_id"] != "ds-md" {
+		t.Errorf("parent.data_source_id = %v, want ds-md", parent["data_source_id"])
+	}
+}
+
+// TestCreatePage_LegacyDatabaseIDParent (Issue #8 regression): legacy DBs (no
+// data_sources array) keep using parent.database_id — the markdown sync path
+// against pre-2025-09-03 DBs must remain byte-identical.
+func TestCreatePage_LegacyDatabaseIDParent(t *testing.T) {
+	var captured map[string]any
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/databases/db123") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         "db123",
+				"properties": map[string]any{"Name": map[string]any{"id": "t", "name": "Name", "type": "title"}},
+			})
+			return
+		}
+		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/pages") {
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "page-legacy"})
+	})
+	if _, err := c.CreatePage(context.Background(), Properties{Title: "t"}, nil); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	parent, ok := captured["parent"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing parent: %v", captured)
+	}
+	if parent["database_id"] != "db123" {
+		t.Errorf("parent.database_id = %v, want db123 (legacy DBs must stay byte-identical)", parent["database_id"])
+	}
+	if _, present := parent["data_source_id"]; present {
+		t.Errorf("parent.data_source_id must not appear for legacy DB: %v", parent)
 	}
 }
 
