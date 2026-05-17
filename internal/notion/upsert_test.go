@@ -145,6 +145,126 @@ func TestCreatePageClaudeLog_usesArgDBID(t *testing.T) {
 	}
 }
 
+func TestAppendNewChildren_ChunksAt100(t *testing.T) {
+	var patchCount int
+	var chunkSizes []int
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" || !strings.HasSuffix(r.URL.Path, "/children") {
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		var payload struct {
+			Children []map[string]any `json:"children"`
+		}
+		_ = json.Unmarshal(body, &payload)
+		patchCount++
+		chunkSizes = append(chunkSizes, len(payload.Children))
+		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list"})
+	})
+	blocks := make([]map[string]any, 201)
+	for i := range blocks {
+		blocks[i] = map[string]any{"object": "block", "type": "paragraph"}
+	}
+	if err := c.AppendNewChildren(context.Background(), "page-1", blocks); err != nil {
+		t.Fatalf("AppendNewChildren: %v", err)
+	}
+	if patchCount != 3 {
+		t.Errorf("PATCH count = %d, want 3 (201 blocks / 100)", patchCount)
+	}
+	for i, n := range chunkSizes {
+		if n > 100 {
+			t.Errorf("chunk[%d] size = %d, want <=100", i, n)
+		}
+	}
+	if chunkSizes[0]+chunkSizes[1]+chunkSizes[2] != 201 {
+		t.Errorf("total blocks across chunks = %d, want 201", chunkSizes[0]+chunkSizes[1]+chunkSizes[2])
+	}
+}
+
+func TestGetPageLastUUID_ExtractsRichText(t *testing.T) {
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/pages/page-1") {
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "page-1",
+			"properties": map[string]any{
+				"Last UUID": map[string]any{
+					"rich_text": []map[string]any{
+						{
+							"type":       "text",
+							"plain_text": "uuid-7",
+							"text":       map[string]any{"content": "uuid-7"},
+						},
+					},
+				},
+			},
+		})
+	})
+	got, err := c.GetPageLastUUID(context.Background(), "page-1")
+	if err != nil {
+		t.Fatalf("GetPageLastUUID: %v", err)
+	}
+	if got != "uuid-7" {
+		t.Errorf("got %q, want uuid-7", got)
+	}
+}
+
+func TestGetPageLastUUID_EmptyWhenAbsent(t *testing.T) {
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":         "page-1",
+			"properties": map[string]any{},
+		})
+	})
+	got, err := c.GetPageLastUUID(context.Background(), "page-1")
+	if err != nil {
+		t.Fatalf("GetPageLastUUID: %v", err)
+	}
+	if got != "" {
+		t.Errorf("got %q, want empty string", got)
+	}
+}
+
+func TestUpdateClaudeLogCursorProperties_BodyShape(t *testing.T) {
+	var captured map[string]any
+	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" || !strings.HasSuffix(r.URL.Path, "/pages/page-1") {
+			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "page-1"})
+	})
+	when := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
+	if err := c.UpdateClaudeLogCursorProperties(context.Background(), "page-1", "uuid-9", 12, when); err != nil {
+		t.Fatalf("UpdateClaudeLogCursorProperties: %v", err)
+	}
+	props, ok := captured["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing properties: %v", captured)
+	}
+	allowed := map[string]struct{}{"Last UUID": {}, "Message Count": {}, "Last Synced": {}}
+	for name := range props {
+		if _, ok := allowed[name]; !ok {
+			t.Errorf("body contains forbidden property %q (partial PATCH must be cursor-only)", name)
+		}
+	}
+	for name := range allowed {
+		if _, ok := props[name]; !ok {
+			t.Errorf("body missing required property %q", name)
+		}
+	}
+	cnt, ok := props["Message Count"].(map[string]any)["number"].(float64)
+	if !ok || int(cnt) != 12 {
+		t.Errorf("Message Count = %v, want 12", props["Message Count"])
+	}
+	date, ok := props["Last Synced"].(map[string]any)["date"].(map[string]any)
+	if !ok || date["start"] != when.Format(time.RFC3339) {
+		t.Errorf("Last Synced = %v", props["Last Synced"])
+	}
+}
+
 func TestFindPageByExternalID_stillWorks(t *testing.T) {
 	var captured map[string]any
 	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
