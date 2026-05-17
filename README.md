@@ -2,24 +2,26 @@
 
 `~/Projects/*/.serena/memories/*.md` を Notion データベースに **冪等に upsert 同期** する macOS 向け CLI。launchd で 15 分おきに起動する想定。
 
+オプションで `~/.claude/projects/**/*.jsonl` (Claude Code の会話履歴) を別の Notion DB へ並行同期する **claude-log** モードを提供します。両者はそれぞれ独立した launchd job として登録されます。
+
 ## Quick Start (2 ステップ)
 
 ```sh
 # 1. install
 go install github.com/satocchi0416sh/cortex/cmd/cortex-sync@latest
 
-# 2. 対話セットアップ (token / DB / schema 検証 / plist 配置 / launchd 登録 / 初回確認)
+# 2. 対話セットアップ (token / DB / schema 検証 / plist 配置 / launchd 登録 / 初回確認 / claude-log セットアップ)
 cortex-sync init
 ```
 
-事前に [Notion integration](https://www.notion.so/profile/integrations) を作成し、対象 DB の "•••" → Connections で integration を Add しておいてください。
+事前に [Notion integration](https://www.notion.so/profile/integrations) を作成し、対象 DB の "•••" → Connections で integration を Add しておいてください。claude-log を使う場合は別 DB を用意し、同じ integration を Add してください。
 
 セットアップ後の運用:
 
 ```sh
-cortex-sync doctor       # 状態診断 (token / DB schema / plist / launchd)
-cortex-sync install      # plist 再配置 + launchd 再登録 (idempotent)
-cortex-sync uninstall    # 完全アンインストール
+cortex-sync doctor       # 状態診断 (token / 両 DB schema / 両 plist / 両 launchd job)
+cortex-sync install      # 両 plist 再配置 + 両 launchd 再登録 (claude-log は env / 既存 wrapper に DB ID がある時のみ)
+cortex-sync uninstall    # 完全アンインストール (markdown + claude-log の両 plist / job / wrapper を解除)
 ```
 
 ## 前提
@@ -67,16 +69,33 @@ go build -o cortex-sync ./cmd/cortex-sync
 | `CORTEX_GLOB_PATTERN` | `*/.serena/memories/*.md` | no | scan-root からの glob |
 | `CORTEX_RPS` | `2.5` | no | Notion API 呼び出しの平均 RPS |
 | `CORTEX_LOG_FORMAT` | `text` | no | `text` / `json` |
+| `CORTEX_CLAUDELOG_DATABASE_ID` | — | claude-log 使用時 yes | Claude Code 会話履歴の同期先 DB UUID |
+| `CORTEX_CLAUDE_PROJECTS_ROOT` | `~/.claude/projects` | no | Claude Code セッション JSONL のルート |
 
 ## CLI フラグ
 
 ```
-cortex-sync [flags]              一回限り sync (既定動作)
-cortex-sync init                 対話セットアップ
-cortex-sync doctor               状態診断
-cortex-sync install              plist + launchd を idempotent に再配置
-cortex-sync uninstall            完全アンインストール
+cortex-sync [flags]                            一回限り sync (既定動作)
+cortex-sync init                               対話セットアップ (claude-log セットアップを途中で Confirm)
+cortex-sync doctor                             状態診断 (markdown + claude-log 両方)
+cortex-sync install                            plist + launchd を idempotent に再配置 (両 job)
+cortex-sync uninstall                          完全アンインストール (両 job)
+cortex-sync claude-log --session <uuid>        単一セッションを Notion へ同期 (対話的)
+cortex-sync claude-log --all                   ClaudeProjectsRoot 配下の全 *.jsonl を best-effort 同期 (launchd 用)
 ```
+
+`claude-log` のフラグ:
+
+```
+--session <uuid>     ファイル名 (<uuid>.jsonl) から派生する session ID
+--all                CORTEX_CLAUDE_PROJECTS_ROOT 配下の *.jsonl 全部を順次同期
+--dry-run            Notion API を呼ばず計画だけ表示
+--verbose            slog レベルを Debug に
+--config <path>      yaml/json 設定ファイル
+--state-file <path>  claude-log の state ファイルを上書き (既定 ~/.cortex/claudelog_state.json)
+```
+
+`--session` と `--all` は排他です。両方指定 / 両方未指定はいずれも exit 2。
 
 sync 用 flag:
 ```
@@ -103,6 +122,23 @@ CORTEX_SCAN_ROOT=$HOME/Projects cortex-sync --dry-run
 export CORTEX_NOTION_TOKEN="$(security find-generic-password -s cortex-notion -w)"
 export CORTEX_NOTION_DATABASE_ID="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 cortex-sync --once --verbose
+```
+
+## launchd の 2 job 構成
+
+`cortex-sync init` (または `install`) は以下の 2 つの launchd LaunchAgent を登録します:
+
+| Label | wrapper | 起動コマンド | 同期対象 |
+|---|---|---|---|
+| `com.satoyoshi.cortex-sync` | `~/bin/cortex-sync-wrapper.sh` | `cortex-sync --once` | `~/Projects/*/.serena/memories/*.md` |
+| `com.satoyoshi.cortex-claudelog` | `~/bin/cortex-claudelog-wrapper.sh` | `cortex-sync claude-log --all` | `~/.claude/projects/**/*.jsonl` |
+
+claude-log は **opt-in**: `cortex-sync init` の Confirm で No を選ぶ、または `CORTEX_CLAUDELOG_DATABASE_ID` を未設定にしておくと、claude-log の plist は配置されません。markdown sync は単独で動作します。
+
+両 job とも `launchctl list | grep cortex` で確認できます:
+
+```sh
+launchctl list | grep satoyoshi.cortex
 ```
 
 ## launchd への登録
