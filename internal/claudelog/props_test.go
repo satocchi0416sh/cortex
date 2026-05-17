@@ -10,6 +10,7 @@ func TestBuildProperties_Standard(t *testing.T) {
 		SessionID: "abcdef0123-456",
 		Cwd:       "/Users/me/Projects/dotgo",
 		StartedAt: time.Date(2026, 5, 17, 9, 0, 0, 0, time.UTC),
+		AITitle:   "Pinned title from Claude",
 		Messages: []Message{
 			{Role: "user", Text: "a", UUID: "u-1"},
 			{Role: "assistant", Text: "b", UUID: "u-2"},
@@ -17,8 +18,8 @@ func TestBuildProperties_Standard(t *testing.T) {
 	}
 	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.FixedZone("JST", 9*3600))
 	p := BuildProperties(s, "/path/to/abcdef01.jsonl", now)
-	if p.Title != "abcdef01 dotgo" {
-		t.Errorf("Title = %q, want %q", p.Title, "abcdef01 dotgo")
+	if p.Title != "Pinned title from Claude" {
+		t.Errorf("Title = %q, want ai-title to win", p.Title)
 	}
 	if p.SessionID != s.SessionID {
 		t.Errorf("SessionID truncated: got %q", p.SessionID)
@@ -37,6 +38,20 @@ func TestBuildProperties_Standard(t *testing.T) {
 	}
 	if p.MessageCount != 2 {
 		t.Errorf("MessageCount = %d, want 2", p.MessageCount)
+	}
+}
+
+// TestBuildProperties_AITitleFallsThroughToSynthetic exercises the AC4 path:
+// no ai-title and no user messages forces the synthetic "<sid8> <basename>"
+// fallback, which must still emit a non-empty Name.
+func TestBuildProperties_AITitleFallsThroughToSynthetic(t *testing.T) {
+	s := &Session{
+		SessionID: "abcdef0123-456",
+		Cwd:       "/Users/me/Projects/dotgo",
+	}
+	p := BuildProperties(s, "src", time.Now())
+	if p.Title != "abcdef01 dotgo" {
+		t.Errorf("Title = %q, want synthetic fallback %q", p.Title, "abcdef01 dotgo")
 	}
 }
 
