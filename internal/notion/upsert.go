@@ -77,8 +77,15 @@ func (c *Client) FindPageBySessionID(ctx context.Context, sessionID string) (str
 // findPageByRichText runs a Notion DB query filtered on a rich_text property's
 // "equals" predicate and returns the first matching page ID, or the empty
 // string when nothing matches. Shared by FindPageByExternalID and
-// FindPageBySessionID so the request shape stays canonical.
+// FindPageBySessionID so the request shape stays canonical. The query path is
+// resolved per database so pre-2025-09-03 databases keep using
+// /databases/{id}/query while data_source-style databases use
+// /data_sources/{ds_id}/query (otherwise Notion returns 400 invalid_request_url).
 func (c *Client) findPageByRichText(ctx context.Context, propertyName, value string) (string, error) {
+	root, err := c.dbRoot(ctx)
+	if err != nil {
+		return "", err
+	}
 	body := map[string]any{
 		"filter": map[string]any{
 			"property": propertyName,
@@ -89,13 +96,30 @@ func (c *Client) findPageByRichText(ctx context.Context, propertyName, value str
 		"page_size": 1,
 	}
 	var resp queryResult
-	if err := c.do(ctx, "POST", fmt.Sprintf("/databases/%s/query", c.dbID), body, &resp); err != nil {
+	if err := c.do(ctx, "POST", root+"/query", body, &resp); err != nil {
 		return "", err
 	}
 	if len(resp.Results) == 0 {
 		return "", nil
 	}
 	return resp.Results[0].ID, nil
+}
+
+// dbRoot returns the Notion API path that is the source of truth for the
+// client's database: "/databases/<id>" for pre-2025-09-03 databases where
+// properties live on the DB itself, "/data_sources/<ds_id>" for newer
+// databases where properties live on a data source. The result is cached
+// per-client so subsequent queries skip the discovery GET.
+func (c *Client) dbRoot(ctx context.Context) (string, error) {
+	if v := c.cachedRoot.Load(); v != nil {
+		return v.(string), nil
+	}
+	info, err := c.GetDatabase(ctx, c.dbID)
+	if err != nil {
+		return "", fmt.Errorf("resolve db root: %w", err)
+	}
+	c.cachedRoot.Store(info.schemaPath)
+	return info.schemaPath, nil
 }
 
 func (c *Client) CreatePage(ctx context.Context, props Properties, blocks []map[string]any) (string, error) {

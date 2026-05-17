@@ -52,6 +52,15 @@ func TestClaudeLogProperties_toMap_omitsZeroDates(t *testing.T) {
 func TestFindPageBySessionID_filterBody(t *testing.T) {
 	var captured map[string]any
 	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/databases/db123") {
+			// Resolve to legacy /databases/<id> root so the query path stays
+			// /databases/db123/query (matches the assertion below).
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         "db123",
+				"properties": map[string]any{"Session ID": map[string]any{"id": "x", "name": "Session ID", "type": "rich_text"}},
+			})
+			return
+		}
 		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/databases/db123/query") {
 			t.Errorf("unexpected req %s %s", r.Method, r.URL.Path)
 		}
@@ -86,6 +95,13 @@ func TestFindPageBySessionID_filterBody(t *testing.T) {
 
 func TestFindPageBySessionID_emptyResult(t *testing.T) {
 	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/databases/db123") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         "db123",
+				"properties": map[string]any{"Session ID": map[string]any{"id": "x", "name": "Session ID", "type": "rich_text"}},
+			})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{}})
 	})
 	pageID, err := c.FindPageBySessionID(context.Background(), "nope")
@@ -132,6 +148,13 @@ func TestCreatePageClaudeLog_usesArgDBID(t *testing.T) {
 func TestFindPageByExternalID_stillWorks(t *testing.T) {
 	var captured map[string]any
 	c, _ := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/databases/db123") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         "db123",
+				"properties": map[string]any{"External ID": map[string]any{"id": "x", "name": "External ID", "type": "rich_text"}},
+			})
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &captured)
 		_ = json.NewEncoder(w).Encode(map[string]any{

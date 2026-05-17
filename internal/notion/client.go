@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -22,11 +23,12 @@ const (
 )
 
 type Client struct {
-	http    *http.Client
-	token   string
-	dbID    string
-	limiter *rate.Limiter
-	logger  *slog.Logger
+	http       *http.Client
+	token      string
+	dbID       string
+	limiter    *rate.Limiter
+	logger     *slog.Logger
+	cachedRoot atomic.Value // string: /databases/<id> or /data_sources/<ds_id>
 }
 
 type Options struct {
