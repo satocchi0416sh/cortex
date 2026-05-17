@@ -3,6 +3,7 @@ package notion
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -122,14 +123,51 @@ func (c *Client) dbRoot(ctx context.Context) (string, error) {
 	return info.schemaPath, nil
 }
 
+// dbParent returns the Notion "parent" object that page-create endpoints
+// expect for the supplied database. For pre-2025-09-03 DBs and single
+// data_source DBs Notion still accepts {"database_id": dbID} (auto-resolved),
+// but multi data_source DBs require an explicit {"data_source_id": <ds_id>}
+// (otherwise the page POST returns 400). The helper transparently handles
+// both shapes by inspecting the dbRoot / GetDatabase result.
+//
+// Caching: when dbID equals the client's configured database, the cached
+// root populated by dbRoot is reused (no extra GET). For ad-hoc dbIDs
+// (e.g. CreatePageClaudeLog routing to a non-default DB) a fresh
+// GetDatabase is issued — page-create flows are already in the seconds-
+// per-call range, so the extra round trip is acceptable.
+func (c *Client) dbParent(ctx context.Context, dbID string) (map[string]any, error) {
+	var root string
+	if dbID == c.dbID {
+		r, err := c.dbRoot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		root = r
+	} else {
+		info, err := c.GetDatabase(ctx, dbID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve db parent: %w", err)
+		}
+		root = info.schemaPath
+	}
+	if strings.HasPrefix(root, "/data_sources/") {
+		return map[string]any{"data_source_id": strings.TrimPrefix(root, "/data_sources/")}, nil
+	}
+	return map[string]any{"database_id": dbID}, nil
+}
+
 func (c *Client) CreatePage(ctx context.Context, props Properties, blocks []map[string]any) (string, error) {
+	parent, err := c.dbParent(ctx, c.dbID)
+	if err != nil {
+		return "", err
+	}
 	chunks := ChunkBlocks(blocks)
 	var first []map[string]any
 	if len(chunks) > 0 {
 		first = chunks[0]
 	}
 	body := map[string]any{
-		"parent":     map[string]any{"database_id": c.dbID},
+		"parent":     parent,
 		"properties": props.toMap(),
 		"children":   first,
 	}
@@ -344,13 +382,17 @@ func (c *Client) UpdateClaudeLogCursorProperties(ctx context.Context, pageID, la
 // argument (not the client's configured DB) so callers can route writes to a
 // dedicated claude-log DB without re-initialising the client.
 func (c *Client) CreatePageClaudeLog(ctx context.Context, dbID string, props ClaudeLogProperties, blocks []map[string]any) (string, error) {
+	parent, err := c.dbParent(ctx, dbID)
+	if err != nil {
+		return "", err
+	}
 	chunks := ChunkBlocks(blocks)
 	var first []map[string]any
 	if len(chunks) > 0 {
 		first = chunks[0]
 	}
 	body := map[string]any{
-		"parent":     map[string]any{"database_id": dbID},
+		"parent":     parent,
 		"properties": props.toMap(),
 		"children":   first,
 	}
