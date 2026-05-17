@@ -119,6 +119,20 @@ func TestParseSession_SidechainSkippedSilently(t *testing.T) {
 	}
 }
 
+// TestParseSession_SidechainOnly is the AC3 regression: a JSONL where every
+// non-system entry is a sidechain must produce zero Messages so the Notion
+// page never receives a leaked sidechain turn.
+func TestParseSession_SidechainOnly(t *testing.T) {
+	logger, _ := newCaptureLogger()
+	s, err := ParseSession("testdata/sidechain_only.jsonl", logger)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(s.Messages) != 0 {
+		t.Fatalf("expected zero messages from sidechain-only file, got %d: %+v", len(s.Messages), s.Messages)
+	}
+}
+
 func TestParseSession_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.jsonl")
@@ -155,6 +169,68 @@ not-json-at-all
 	}
 	if !strings.Contains(buf.String(), "invalid json entry") {
 		t.Errorf("expected invalid-json warning, log = %s", buf.String())
+	}
+}
+
+// TestParseSession_ToolUseParsedAndPaired exercises the AC1/AC2 path: an
+// assistant message with two tool_use parts must surface as ToolUses on the
+// assistant Message, and the subsequent user tool_result parts must be
+// merged in by ID so the renderer can emit a toggle containing both input
+// and result.
+func TestParseSession_ToolUseParsedAndPaired(t *testing.T) {
+	logger, _ := newCaptureLogger()
+	s, err := ParseSession("testdata/tool_use.jsonl", logger)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if s.AITitle != "List project files via Bash + Read" {
+		t.Errorf("AITitle = %q, want captured top-level aiTitle", s.AITitle)
+	}
+	// Expect 3 messages: user, assistant(with text+tool_uses), assistant("done").
+	// The intermediate user-with-tool_result entry must be dropped because it
+	// carries no text and its payload has already been merged into the
+	// previous assistant message's ToolUses.
+	if len(s.Messages) != 3 {
+		t.Fatalf("Messages len = %d, want 3 (user, assistant+tools, assistant done): %+v", len(s.Messages), s.Messages)
+	}
+	asst := s.Messages[1]
+	if asst.Role != "assistant" {
+		t.Fatalf("msg[1] role = %q, want assistant", asst.Role)
+	}
+	if asst.Text != "sure, looking now" {
+		t.Errorf("asst.Text = %q, want %q", asst.Text, "sure, looking now")
+	}
+	if len(asst.ToolUses) != 2 {
+		t.Fatalf("asst.ToolUses len = %d, want 2", len(asst.ToolUses))
+	}
+	if asst.ToolUses[0].Name != "Bash" || asst.ToolUses[0].ID != "toolu_1" {
+		t.Errorf("tool[0] = %+v", asst.ToolUses[0])
+	}
+	if !strings.Contains(asst.ToolUses[0].InputJSON, `"command":"ls -la"`) {
+		t.Errorf("tool[0].InputJSON = %q, want command", asst.ToolUses[0].InputJSON)
+	}
+	if asst.ToolUses[0].Result != "total 0\ndrwxr-xr-x" {
+		t.Errorf("tool[0].Result = %q, want pair to be merged", asst.ToolUses[0].Result)
+	}
+	if asst.ToolUses[1].Name != "Read" || asst.ToolUses[1].Result != "file contents here" {
+		t.Errorf("tool[1] = %+v", asst.ToolUses[1])
+	}
+}
+
+// TestParseSession_ArrayContent_NoToolUseAndDropsBareToolUse confirms the
+// pre-existing array_content fixture still yields the same joined text (no
+// new ToolUses since the fixture's tool_use has no id/input).
+func TestParseSession_ArrayContent_ToolUsePresent(t *testing.T) {
+	logger, _ := newCaptureLogger()
+	s, err := ParseSession("testdata/array_content.jsonl", logger)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(s.Messages) != 2 {
+		t.Fatalf("Messages len = %d, want 2", len(s.Messages))
+	}
+	if got := len(s.Messages[1].ToolUses); got != 1 {
+		t.Errorf("ToolUses len = %d, want 1 (the tool_use part with no input)", got)
 	}
 }
 

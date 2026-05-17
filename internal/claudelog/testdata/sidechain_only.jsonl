@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"sess-sc-only","cwd":"/sc","timestamp":"2026-05-17T12:00:00.000Z","isSidechain":true,"message":{"role":"user","content":"only sidechain"}}
+{"type":"assistant","sessionId":"sess-sc-only","cwd":"/sc","timestamp":"2026-05-17T12:00:01.000Z","isSidechain":true,"message":{"role":"assistant","content":"sidechain reply"}}

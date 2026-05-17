@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -16,30 +17,48 @@ import (
 // sync path to locate the last synced message; older JSONL files without uuid
 // fields parse to an empty string and the append path treats that as "cursor
 // unknown" which forces a full-sync error rather than silent divergence.
+//
+// ToolUses is the ordered list of tool invocations Claude Code emitted as
+// part of this message's content array. Always nil for user messages
+// because user tool_result parts are merged into the matching assistant
+// message's ToolUses[i].Result rather than surfacing as standalone entries.
 type Message struct {
-	Role string
-	Text string
-	UUID string
+	Role     string
+	Text     string
+	UUID     string
+	ToolUses []ToolUse
 }
 
 // Session is the parsed JSONL: identifying metadata plus the ordered list of
-// user/assistant text turns.
+// user/assistant text turns. AITitle carries the value Claude Code wrote in
+// the session's ai-title entry (empty when no such entry exists, in which
+// case Title falls back to the first user prompt or a synthetic label).
 type Session struct {
 	SessionID string
 	Cwd       string
 	StartedAt time.Time
+	AITitle   string
 	Messages  []Message
 }
 
 // knownSkipTypes are entry types we silently skip — they exist in the JSONL
-// stream but are not part of the user/assistant transcript MVP renders.
-// Anything outside both this set and {"user","assistant"} is treated as
-// unknown and warn-logged so we notice when Claude Code adds a new type.
+// stream but are not part of the user/assistant transcript the renderer
+// emits. Anything outside this set and {"user","assistant","ai-title"} is
+// treated as unknown and warn-logged so we notice when Claude Code adds a
+// new type.
+//
+// "ai-title" is intentionally NOT in this set anymore: it carries the
+// session title in a top-level aiTitle field that ParseSession captures
+// into Session.AITitle.
+//
+// "tool_use" / "tool_result" are kept here because Claude Code embeds them
+// inside user/assistant message.content arrays, not as standalone top-level
+// entries; on the rare day a top-level one shows up there is nothing to
+// pair it against so silent skip is the correct behaviour.
 var knownSkipTypes = map[string]struct{}{
 	"system":                {},
 	"attachment":            {},
 	"file-history-snapshot": {},
-	"ai-title":              {},
 	"last-prompt":           {},
 	"permission-mode":       {},
 	"summary":               {},
@@ -81,9 +100,11 @@ func ParseSession(path string, logger *slog.Logger) (*Session, error) {
 			logger.Warn("invalid json entry", "line", lineNo, "err", err)
 			continue
 		}
-		if entry.IsSidechain {
-			continue
-		}
+		// Capture identifying metadata before the sidechain bailout: a
+		// sidechain entry still belongs to the session, so its sessionId /
+		// cwd / timestamp are valid sources of truth. Without this a
+		// JSONL whose first entries are all sidechain (rare but possible)
+		// would fail the "session id not found" guard at the end.
 		if session.SessionID == "" && entry.SessionID != "" {
 			session.SessionID = entry.SessionID
 		}
@@ -97,17 +118,39 @@ func ParseSession(path string, logger *slog.Logger) (*Session, error) {
 				session.StartedAt = ts
 			}
 		}
+		if entry.IsSidechain {
+			continue
+		}
 
 		switch entry.Type {
+		case "ai-title":
+			// Prefer the first ai-title we see; Claude Code occasionally
+			// regenerates titles mid-session, but the original one is more
+			// faithful to the conversation kickoff.
+			if session.AITitle == "" && entry.AITitle != "" {
+				session.AITitle = entry.AITitle
+			}
 		case "user", "assistant":
-			text := extractText(entry.Message)
-			if text == "" {
+			parts := extractParts(entry.Message)
+			text, toolUses, results := splitContentParts(parts)
+			// Drop empty messages (no text and no tool activity) the same way
+			// MVP did. Pure tool_result-only user entries are also dropped
+			// here because their payload has already been merged into the
+			// matching assistant Message.ToolUses by mergeToolResults below.
+			if text == "" && len(toolUses) == 0 && len(results) == 0 {
+				continue
+			}
+			if len(results) > 0 {
+				mergeToolResults(session.Messages, results)
+			}
+			if text == "" && len(toolUses) == 0 {
 				continue
 			}
 			session.Messages = append(session.Messages, Message{
-				Role: entry.Type,
-				Text: text,
-				UUID: entry.UUID,
+				Role:     entry.Type,
+				Text:     text,
+				UUID:     entry.UUID,
+				ToolUses: toolUses,
 			})
 		default:
 			if _, ok := knownSkipTypes[entry.Type]; ok {
@@ -129,4 +172,62 @@ func ParseSession(path string, logger *slog.Logger) (*Session, error) {
 		}
 	}
 	return session, nil
+}
+
+// splitContentParts walks a decoded content-part slice and returns three
+// slices grouped by what the renderer needs: the joined text (text parts
+// concatenated with newlines, matching the MVP extractText shape), the
+// ordered tool_use invocations, and the tool_result back-references that
+// the caller will merge into prior assistant messages.
+func splitContentParts(parts []contentPart) (string, []ToolUse, []contentPart) {
+	var textPieces []string
+	var toolUses []ToolUse
+	var results []contentPart
+	for _, p := range parts {
+		switch p.Type {
+		case "text":
+			if p.Text != "" {
+				textPieces = append(textPieces, p.Text)
+			}
+		case "tool_use":
+			toolUses = append(toolUses, ToolUse{
+				ID:        p.ID,
+				Name:      p.Name,
+				InputJSON: p.InputJSON,
+			})
+		case "tool_result":
+			results = append(results, p)
+		}
+	}
+	return strings.Join(textPieces, "\n"), toolUses, results
+}
+
+// mergeToolResults walks back over already-parsed messages to fill the
+// Result field of any ToolUse whose ID matches an incoming tool_result
+// part. We scan in reverse because the matching tool_use is almost always
+// in the immediately preceding assistant message, so the inner loop usually
+// exits after one iteration; orphaned results (no matching tool_use, e.g.
+// JSONL truncated mid-pair) are silently dropped.
+func mergeToolResults(messages []Message, results []contentPart) {
+	for _, r := range results {
+		if r.ToolUseID == "" {
+			continue
+		}
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role != "assistant" {
+				continue
+			}
+			matched := false
+			for j := range messages[i].ToolUses {
+				if messages[i].ToolUses[j].ID == r.ToolUseID {
+					messages[i].ToolUses[j].Result = r.Result
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+	}
 }
