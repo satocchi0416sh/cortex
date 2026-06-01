@@ -1,7 +1,7 @@
 // Package launchd provides idempotent install / uninstall helpers for the
 // cortex-sync macOS launchd jobs (LaunchAgents). Two jobs are supported:
-// the markdown sync job (com.satoyoshi.cortex-sync) and the Claude Code
-// conversation-log sync job (com.satoyoshi.cortex-claudelog). Each job's
+// the markdown sync job (com.cortex.sync) and the Claude Code
+// conversation-log sync job (com.cortex.claudelog). Each job's
 // plist + wrapper script are embedded as text/template at compile time so
 // the binary is self-contained.
 package launchd
@@ -35,12 +35,12 @@ var claudeLogWrapperTmplSrc string
 // MarkdownLabel is the launchd job label for the markdown sync job
 // (~/Projects/*/.serena/memories/*.md → Notion). Kept stable across versions
 // so reinstall is idempotent.
-const MarkdownLabel = "com.satoyoshi.cortex-sync"
+const MarkdownLabel = "com.cortex.sync"
 
 // ClaudeLogLabel is the launchd job label for the Claude Code conversation
 // log sync job. Distinct from MarkdownLabel so the two jobs install / start /
 // stop independently.
-const ClaudeLogLabel = "com.satoyoshi.cortex-claudelog"
+const ClaudeLogLabel = "com.cortex.claudelog"
 
 // Label is retained as an alias of MarkdownLabel for backwards compatibility
 // with code that referenced the old single-job constant.
