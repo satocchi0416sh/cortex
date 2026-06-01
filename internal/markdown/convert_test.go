@@ -203,3 +203,97 @@ func TestTableWithRaggedRowsPaddedToWidth(t *testing.T) {
 		}
 	}
 }
+
+// linkURLs extracts every emitted rich_text link URL across all blocks,
+// recursing into nested children (e.g. list items, quotes).
+func linkURLs(blocks []Block) []string {
+	var urls []string
+	var walk func(v any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case []map[string]any:
+			for _, m := range t {
+				walk(m)
+			}
+		case map[string]any:
+			if txt, ok := t["text"].(map[string]any); ok {
+				if lnk, ok := txt["link"].(map[string]any); ok {
+					if u, ok := lnk["url"].(string); ok {
+						urls = append(urls, u)
+					}
+				}
+			}
+			for _, vv := range t {
+				walk(vv)
+			}
+		}
+	}
+	for _, b := range blocks {
+		walk(map[string]any(b))
+	}
+	return urls
+}
+
+// TestSanitizeLinkURL_DropsInvalid guards against the Notion 400
+// "Invalid URL for link" regression: relative destinations, fragment anchors,
+// and scheme-less email autolinks must not be emitted as rich_text links,
+// while genuine absolute URLs are preserved.
+func TestSanitizeLinkURL_DropsInvalid(t *testing.T) {
+	dropped := []struct{ name, input string }{
+		{"dot_relative", "see [log](.) here\n"},
+		{"parent_relative", "see [doc](../guide.md) here\n"},
+		{"fragment_anchor", "see [top](#section) here\n"},
+		{"bare_email", "ping no-reply@accounts.nintendo.com now\n"},
+		{"email_false_positive", "metric Recall@IoU0.7 reported\n"},
+	}
+	for _, tc := range dropped {
+		t.Run("drop_"+tc.name, func(t *testing.T) {
+			if urls := linkURLs(Convert([]byte(tc.input))); len(urls) != 0 {
+				t.Errorf("expected no links, got %v", urls)
+			}
+		})
+	}
+
+	kept := []struct{ name, input, want string }{
+		{"https", "real https://example.com/x link\n", "https://example.com/x"},
+		{"http", "real http://example.com link\n", "http://example.com"},
+		{"www_gets_scheme", "visit www.example.com today\n", "http://www.example.com"},
+		{"explicit_mailto", "[mail](mailto:a@b.com)\n", "mailto:a@b.com"},
+	}
+	for _, tc := range kept {
+		t.Run("keep_"+tc.name, func(t *testing.T) {
+			urls := linkURLs(Convert([]byte(tc.input)))
+			found := false
+			for _, u := range urls {
+				if u == tc.want {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("expected link %q, got %v", tc.want, urls)
+			}
+		})
+	}
+}
+
+// TestSanitizeLinkURL_Unit exercises the helper directly.
+func TestSanitizeLinkURL_Unit(t *testing.T) {
+	bad := []string{"", ".", "  ", "../x.md", "#a", "foo@bar.com", "Recall@IoU0.7", "http://", "https://"}
+	for _, b := range bad {
+		if u, ok := sanitizeLinkURL(b); ok {
+			t.Errorf("sanitizeLinkURL(%q) = (%q, true), want ok=false", b, u)
+		}
+	}
+	good := map[string]string{
+		"https://x.io/a": "https://x.io/a",
+		"http://x.io":    "http://x.io",
+		"mailto:a@b.com": "mailto:a@b.com",
+		"tel:+15551234":  "tel:+15551234",
+		" https://x.io ": "https://x.io",
+	}
+	for in, want := range good {
+		if u, ok := sanitizeLinkURL(in); !ok || u != want {
+			t.Errorf("sanitizeLinkURL(%q) = (%q, %v), want (%q, true)", in, u, ok, want)
+		}
+	}
+}
