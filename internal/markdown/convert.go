@@ -2,6 +2,7 @@ package markdown
 
 import (
 	"log/slog"
+	"net/url"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -397,8 +398,8 @@ func appendChunks(out *[]RichText, s string, ann annotations) {
 
 func richTextFor(s string, ann annotations) RichText {
 	textObj := map[string]any{"content": s}
-	if ann.link != "" {
-		textObj["link"] = map[string]any{"url": ann.link}
+	if u, ok := sanitizeLinkURL(ann.link); ok {
+		textObj["link"] = map[string]any{"url": u}
 	}
 	rt := RichText{
 		"type": "text",
@@ -418,6 +419,32 @@ func richTextFor(s string, ann annotations) RichText {
 		rt["annotations"] = annot
 	}
 	return rt
+}
+
+// sanitizeLinkURL decides whether a markdown link destination is a URL the
+// Notion API will accept as a rich_text link. Notion requires an absolute URL
+// and rejects the page create with 400 "Invalid URL for link" otherwise, which
+// fails the entire page. Common offenders that reach here: relative link
+// destinations (".", "../guide.md"), fragment-only anchors ("#section"), and
+// scheme-less email autolinks ("foo@bar.com", and GFM false positives like
+// "Recall@IoU0.7") that goldmark's linkify emits without a "mailto:" prefix.
+//
+// Acceptable: any absolute URL (scheme present); http/https additionally
+// require a host. Everything else returns ok=false so the caller drops the
+// link annotation and keeps the text as plain content — the file still syncs.
+func sanitizeLinkURL(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" {
+		return "", false
+	}
+	if (u.Scheme == "http" || u.Scheme == "https") && u.Host == "" {
+		return "", false
+	}
+	return raw, true
 }
 
 func plainText(s string) RichText {
