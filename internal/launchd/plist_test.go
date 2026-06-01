@@ -8,7 +8,7 @@ import (
 
 func TestRenderPlistContainsKeys(t *testing.T) {
 	body, err := RenderPlist(PlistData{
-		Label:       "com.satoyoshi.cortex-sync",
+		Label:       "com.cortex.sync",
 		WrapperPath: "/Users/foo/bin/cortex-sync-wrapper.sh",
 		HomeDir:     "/Users/foo",
 		IntervalSec: 900,
@@ -20,7 +20,7 @@ func TestRenderPlistContainsKeys(t *testing.T) {
 	}
 	musts := []string{
 		`<key>Label</key>`,
-		`<string>com.satoyoshi.cortex-sync</string>`,
+		`<string>com.cortex.sync</string>`,
 		`<string>/Users/foo/bin/cortex-sync-wrapper.sh</string>`,
 		`<key>StartInterval</key>`,
 		`<integer>900</integer>`,
@@ -48,7 +48,7 @@ func TestRenderPlistDefaultInterval(t *testing.T) {
 	if !strings.Contains(body, "<integer>900</integer>") {
 		t.Errorf("expected default interval 900, got: %s", body)
 	}
-	if !strings.Contains(body, "<string>com.satoyoshi.cortex-sync</string>") {
+	if !strings.Contains(body, "<string>com.cortex.sync</string>") {
 		t.Errorf("expected default label, got: %s", body)
 	}
 }
@@ -89,7 +89,7 @@ func TestRenderClaudeLogPlistContainsKeys(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	musts := []string{
-		`<string>com.satoyoshi.cortex-claudelog</string>`,
+		`<string>com.cortex.claudelog</string>`,
 		`<string>/Users/foo/bin/cortex-claudelog-wrapper.sh</string>`,
 		`<integer>900</integer>`,
 		`<string>/Users/foo/Library/Logs/cortex-claudelog.err.log</string>`,
@@ -111,7 +111,7 @@ func TestRenderClaudeLogPlistDefaultLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(body, "<string>com.satoyoshi.cortex-claudelog</string>") {
+	if !strings.Contains(body, "<string>com.cortex.claudelog</string>") {
 		t.Errorf("expected default claude-log label, got: %s", body)
 	}
 	if !strings.Contains(body, "<integer>900</integer>") {
@@ -163,7 +163,7 @@ func TestDefaultPaths_ClaudeLogFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultPaths: %v", err)
 	}
-	if p.ClaudeLogPlistPath == "" || !strings.Contains(p.ClaudeLogPlistPath, "com.satoyoshi.cortex-claudelog.plist") {
+	if p.ClaudeLogPlistPath == "" || !strings.Contains(p.ClaudeLogPlistPath, "com.cortex.claudelog.plist") {
 		t.Errorf("ClaudeLogPlistPath unexpected: %q", p.ClaudeLogPlistPath)
 	}
 	if p.ClaudeLogWrapperPath == "" || !strings.Contains(p.ClaudeLogWrapperPath, "cortex-claudelog-wrapper.sh") {
@@ -176,7 +176,7 @@ func TestDefaultPaths_ClaudeLogFields(t *testing.T) {
 		t.Errorf("ClaudeLogErrLogPath unexpected: %q", p.ClaudeLogErrLogPath)
 	}
 	// Backwards-compat: markdown-sync fields must remain unchanged.
-	if !strings.Contains(p.PlistPath, "com.satoyoshi.cortex-sync.plist") {
+	if !strings.Contains(p.PlistPath, "com.cortex.sync.plist") {
 		t.Errorf("markdown PlistPath drifted: %q", p.PlistPath)
 	}
 	if !strings.Contains(p.WrapperPath, "cortex-sync-wrapper.sh") {
@@ -238,7 +238,7 @@ func TestLabelAliasUnchanged(t *testing.T) {
 	if Label != MarkdownLabel {
 		t.Errorf("Label alias drifted: Label=%q MarkdownLabel=%q", Label, MarkdownLabel)
 	}
-	if Label != "com.satoyoshi.cortex-sync" {
+	if Label != "com.cortex.sync" {
 		t.Errorf("Label changed value: %q", Label)
 	}
 }
