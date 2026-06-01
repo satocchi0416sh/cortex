@@ -1,5 +1,6 @@
 # cortex-sync
 
+[![CI](https://github.com/satocchi0416sh/cortex/actions/workflows/ci.yml/badge.svg)](https://github.com/satocchi0416sh/cortex/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/satocchi0416sh/cortex.svg)](https://pkg.go.dev/github.com/satocchi0416sh/cortex)
 [![Go Report Card](https://goreportcard.com/badge/github.com/satocchi0416sh/cortex)](https://goreportcard.com/report/github.com/satocchi0416sh/cortex)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
