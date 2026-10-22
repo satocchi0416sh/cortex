@@ -41,7 +41,7 @@ cortex-sync uninstall    # Full uninstall (markdown + claude-log plists / jobs /
 ## Prerequisites
 
 - macOS
-- Go 1.25+
+- Go 1.27.3+
 - A Notion workspace and integration token
 
 ## Installation

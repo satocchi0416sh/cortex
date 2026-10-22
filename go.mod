@@ -1,6 +1,6 @@
 module github.com/satocchi0416sh/cortex
 
-go 1.25.1
+go 1.27.3
 
 require (
 	github.com/charmbracelet/huh v1.0.0
