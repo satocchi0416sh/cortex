@@ -6,7 +6,7 @@ build, test, and submit changes.
 ## Prerequisites
 
 - macOS (the launchd integration is macOS-only)
-- Go 1.25+
+- Go 1.27.3+
 - A Notion workspace and integration token if you want to exercise live syncs
 
 ## Getting started
